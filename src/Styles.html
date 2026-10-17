@@ -162,6 +162,24 @@
     animation: spin 0.8s linear infinite;
   }
 
+  /* Zone dont le contenu est en cours de chargement : contenu atténué + spinner centré */
+  .zone-chargement { position: relative; }
+  .en-chargement { min-height: 120px; }
+  .en-chargement > * { opacity: 0.35; pointer-events: none; transition: opacity var(--transition); }
+  .en-chargement::after {
+    content: "";
+    position: absolute;
+    top: min(50%, 160px);
+    left: 50%;
+    width: 32px;
+    height: 32px;
+    margin: -16px 0 0 -16px;
+    border: 3px solid var(--primary-texte);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
   .lien-bouton {
     border: none;
     background: none;
@@ -252,6 +270,20 @@
     padding: var(--gap-sm) var(--pad-input);
     color-scheme: dark;
     transition: border-color var(--transition);
+  }
+  /* Même hauteur pour toutes les lignes de saisie : l'apparence native diffère d'un navigateur à l'autre */
+  .champ input[type="text"],
+  .champ input[type="date"],
+  .champ select { height: 44px; -webkit-appearance: none; appearance: none; }
+  .champ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+  .champ select {
+    padding-right: 36px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: right 18px center, right 13px center;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
   }
   .champ textarea { resize: vertical; min-height: 80px; }
   .champ input:focus, .champ select:focus, .champ textarea:focus {

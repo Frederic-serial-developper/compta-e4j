@@ -49,6 +49,8 @@
       <button type="button" class="onglet" role="tab" id="onglet-AJOUT" data-onglet="AJOUT" aria-controls="panneau-AJOUT" aria-selected="false" hidden>+ Ajouter</button>
     </nav>
 
+    <div id="chargement-initial" class="zone-chargement en-chargement" role="status" aria-busy="true" aria-label="Chargement…"></div>
+
     <!-- === Bilan par compte ============================================== -->
     <section id="panneau-BILAN" class="pile" role="tabpanel" aria-labelledby="onglet-BILAN" hidden>
       <div class="carte filtres">
@@ -62,26 +64,28 @@
         </div>
       </div>
       <div id="bilan-avertissement" class="bandeau" role="status" hidden></div>
-      <div id="bilan-tuiles" class="tuiles"></div>
-      <div class="carte">
-        <div class="tableau-defilant">
-          <table id="bilan-tableau">
-            <caption class="label legende-tableau">Cliquez sur un compte pour voir ses opérations non rapprochées</caption>
-            <thead>
-              <tr>
-                <th scope="col">Compte</th>
-                <th scope="col" class="nombre">Rapproché</th>
-                <th scope="col" class="nombre">Non rapproché</th>
-                <th scope="col" class="nombre">Solde total</th>
-                <th scope="col" class="nombre">Non rappr.</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot></tfoot>
-          </table>
+      <div id="bilan-resultats" class="pile zone-chargement">
+        <div id="bilan-tuiles" class="tuiles"></div>
+        <div class="carte">
+          <div class="tableau-defilant">
+            <table id="bilan-tableau">
+              <caption class="label legende-tableau">Cliquez sur un compte pour voir ses opérations non rapprochées</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Compte</th>
+                  <th scope="col" class="nombre">Rapproché</th>
+                  <th scope="col" class="nombre">Non rapproché</th>
+                  <th scope="col" class="nombre">Solde total</th>
+                  <th scope="col" class="nombre">Non rappr.</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
         </div>
       </div>
-      <div id="bilan-detail" class="carte" hidden></div>
+      <div id="bilan-detail" class="carte zone-chargement" hidden></div>
     </section>
 
     <!-- === Synthèse par catégorie ======================================== -->
@@ -97,7 +101,7 @@
         </label>
       </div>
       <div id="synthese-avertissement" class="bandeau" role="status" hidden></div>
-      <div id="synthese-contenu" class="pile"></div>
+      <div id="synthese-contenu" class="pile zone-chargement"></div>
     </section>
 
     <!-- === Ajout d'une opération ========================================= -->

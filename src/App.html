@@ -44,6 +44,7 @@
   async function initialiser() {
     brancherEvenements();
     const reponse = await appelerApi('apiGetContexte');
+    $('chargement-initial').hidden = true;
     if (!reponse.ok) return signalerErreur(reponse);
     etat.contexte = reponse.data;
     const { reglages } = etat.contexte;
@@ -203,8 +204,10 @@
   async function chargerBilan(forcer) {
     const jeton = ++etat.jetons.BILAN;
     const filtres = { exercice: $('bilan-exercice').value, dateFin: $('bilan-date-fin').value, forcer };
+    basculerChargement($('bilan-resultats'), true);
     const reponse = await appelerApi('apiGetBilanParCompte', filtres);
     if (jeton !== etat.jetons.BILAN) return;
+    basculerChargement($('bilan-resultats'), false);
     if (!reponse.ok) return signalerErreur(reponse);
     etat.perimes.BILAN = false;
     afficherBilan(reponse.data);
@@ -227,6 +230,7 @@
       creerCelluleMontant(bilan.total.nonRapproche), creerCelluleMontant(bilan.total.total),
       creerCellule(String(bilan.total.nbNonRapprochees), 'nombre')]));
     $('bilan-detail').hidden = true;
+    etat.jetons.DETAIL++;  // Ignore un détail encore en cours de chargement
     etat.compteSelectionne = null;
     afficherMiseAJour(bilan.miseAJour);
   }
@@ -261,9 +265,17 @@
     ligne.classList.add('selectionnee');
     etat.compteSelectionne = compte;
     const filtres = { compte, exercice: $('bilan-exercice').value, dateFin: $('bilan-date-fin').value };
+    const conteneur = $('bilan-detail');
+    conteneur.replaceChildren(creerTitreDetail(compte));
+    conteneur.hidden = false;
+    basculerChargement(conteneur, true);
     const reponse = await appelerApi('apiGetDetailNonRapprochees', filtres);
     if (jeton !== etat.jetons.DETAIL) return;
-    if (!reponse.ok) return signalerErreur(reponse);
+    basculerChargement(conteneur, false);
+    if (!reponse.ok) {
+      conteneur.hidden = true;
+      return signalerErreur(reponse);
+    }
     afficherDetailNonRapprochees(reponse.data);
   }
 
@@ -273,13 +285,18 @@
    */
   function afficherDetailNonRapprochees(detail) {
     const conteneur = $('bilan-detail');
-    const titre = creer('h2', { classe: 'carte__titre', texte: `Non rapprochées — ${detail.compte || '—'}` });
+    const titre = creerTitreDetail(detail.compte);
     const liste = creer('div', { classe: 'liste' }, detail.operations.map(creerLigneOperation));
     liste.style.maxHeight = `${UI_CONFIG.LIGNES_AVANT_DEFILEMENT * UI_CONFIG.HAUTEUR_LIGNE_DETAIL_PX}px`;
     const vide = creer('p', { classe: 'vide', texte: '✓ Toutes les opérations de ce compte sont rapprochées.' });
     conteneur.replaceChildren(titre, detail.operations.length > 0 ? liste : vide);
     conteneur.hidden = false;
     conteneur.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  /** @param {string} compte Compte. @return {HTMLElement} Titre de la carte de détail. */
+  function creerTitreDetail(compte) {
+    return creer('h2', { classe: 'carte__titre', texte: `Non rapprochées — ${compte || '—'}` });
   }
 
   /**
@@ -306,10 +323,12 @@
     const jeton = ++etat.jetons.SYNTHESE;
     const exercice = $('synthese-exercice').value;
     $('synthese-comparer').disabled = exercice === '';
+    basculerChargement($('synthese-contenu'), true);
     const reponse = exercice === ''
       ? await appelerApi('apiGetSyntheseTousExercices', { forcer })
       : await appelerApi('apiGetSyntheseParCategorie', { exercice, comparer: $('synthese-comparer').checked, forcer });
     if (jeton !== etat.jetons.SYNTHESE) return;
+    basculerChargement($('synthese-contenu'), false);
     if (!reponse.ok) return signalerErreur(reponse);
     etat.perimes.SYNTHESE = false;
     afficherBandeau($('synthese-avertissement'), reponse.data.avertissement);
@@ -740,6 +759,16 @@
   function afficherBandeau(bandeau, message) {
     bandeau.textContent = message || '';
     bandeau.hidden = !message;
+  }
+
+  /**
+   * Affiche ou retire le spinner d'une zone pendant un chargement.
+   * @param {HTMLElement} zone Élément portant la classe zone-chargement.
+   * @param {boolean} estEnCours Vrai pendant le chargement.
+   */
+  function basculerChargement(zone, estEnCours) {
+    zone.classList.toggle('en-chargement', estEnCours);
+    zone.setAttribute('aria-busy', String(estEnCours));
   }
 
   /** @param {string} horodatage Date et heure de dernière mise à jour. */
