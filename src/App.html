@@ -1,0 +1,802 @@
+<script>
+  /* ===========================================================================
+   *  App.html — JavaScript de l'interface
+   *
+   *  Rôle : navigation par onglets, appels au serveur (google.script.run),
+   *         affichage du bilan, de la synthèse et du formulaire d'ajout.
+   *  Les libellés, formats et valeurs par défaut viennent du serveur
+   *  (apiGetContexte, issus de CONFIG) ; seuls les réglages purement visuels
+   *  sont déclarés ici. Aucun calcul de total n'est fait dans le navigateur.
+   *  Sécurité : le HTML est construit avec textContent (jamais innerHTML avec
+   *  des données).
+   * ======================================================================== */
+
+  /* --- Réglages visuels ------------------------------------------------- */
+  const UI_CONFIG = {
+    DUREE_TOAST_MS: 2200,            // Durée d'affichage d'une notification de succès
+    DUREE_TOAST_ERREUR_MS: 5000,     // Durée d'affichage d'une notification d'erreur
+    LIGNES_AVANT_DEFILEMENT: 8,      // Nombre d'opérations visibles dans le détail avant défilement
+    HAUTEUR_LIGNE_DETAIL_PX: 70      // Hauteur approximative d'une opération dans le détail
+  };
+
+  /* --- État de l'interface --------------------------------------------- */
+  const etat = {
+    contexte: null,
+    ongletActif: null,
+    perimes: { BILAN: true, SYNTHESE: true },
+    jetons: { BILAN: 0, SYNTHESE: 0, DETAIL: 0 },
+    compteSelectionne: null,
+    synthese: null,
+    tri: { cle: 'solde', sens: -1 },
+    formateurMontant: null,
+    envoiEnCours: false
+  };
+
+  /** Champs texte et listes du formulaire, dans l'ordre d'affichage. */
+  const CHAMPS_FORMULAIRE = ['COMPTE', 'QUAND', 'QUI', 'QUOI', 'MOYEN', 'COMBIEN', 'EXERCICE',
+    'CATEGORIE', 'COMMENTAIRE'];
+
+  initialiser();
+
+  /* === Démarrage ======================================================= */
+
+  /** Charge le contexte utilisateur puis affiche l'onglet par défaut. */
+  async function initialiser() {
+    brancherEvenements();
+    const reponse = await appelerApi('apiGetContexte');
+    if (!reponse.ok) return signalerErreur(reponse);
+    etat.contexte = reponse.data;
+    const { reglages } = etat.contexte;
+    etat.formateurMontant = new Intl.NumberFormat(reglages.locale, { style: 'currency', currency: reglages.devise });
+    preparerInterface();
+    afficherOnglet(choisirOngletInitial());
+  }
+
+  /** Associe les gestionnaires d'événements aux éléments statiques de la page. */
+  function brancherEvenements() {
+    document.querySelectorAll('[data-onglet]').forEach((bouton) =>
+      bouton.addEventListener('click', () => afficherOnglet(bouton.dataset.onglet)));
+    document.querySelector('.onglets').addEventListener('keydown', naviguerOngletsAuClavier);
+    $('bouton-actualiser').addEventListener('click', actualiser);
+    $('lien-actualiser').addEventListener('click', actualiser);
+    $('bilan-exercice').addEventListener('change', () => chargerBilan(false));
+    $('bilan-date-fin').addEventListener('change', () => chargerBilan(false));
+    $('synthese-exercice').addEventListener('change', () => chargerSynthese(false));
+    $('synthese-comparer').addEventListener('change', () => chargerSynthese(false));
+    $('formulaire-ajout').addEventListener('submit', envoyerFormulaire);
+  }
+
+  /** Applique le contexte : onglet Ajouter, lien vers le Sheet, libellés, listes. */
+  function preparerInterface() {
+    const { estTresorier, urlClasseur, listes } = etat.contexte;
+    $('onglet-AJOUT').hidden = !estTresorier;
+    if (urlClasseur) {
+      $('lien-classeur').href = urlClasseur;
+      $('lien-classeur').hidden = false;
+    }
+    $('bilan-date-fin').value = aujourdhuiIso();
+    appliquerLibellesFormulaire();
+    if (listes) remplirListes(listes);
+  }
+
+  /** @return {string} Onglet à ouvrir au démarrage (Ajouter réservé au trésorier). */
+  function choisirOngletInitial() {
+    const onglet = etat.contexte.reglages.ongletParDefaut;
+    return onglet === 'AJOUT' && !etat.contexte.estTresorier ? 'BILAN' : onglet;
+  }
+
+  /* === Navigation ====================================================== */
+
+  /**
+   * Affiche un onglet et charge ses données si elles sont périmées.
+   * @param {string} nom 'BILAN', 'SYNTHESE' ou 'AJOUT'.
+   */
+  function afficherOnglet(nom) {
+    if (nom === 'AJOUT' && !etat.contexte.estTresorier) return;
+    etat.ongletActif = nom;
+    document.querySelectorAll('[data-onglet]').forEach((bouton) => {
+      const estActif = bouton.dataset.onglet === nom;
+      bouton.setAttribute('aria-selected', String(estActif));
+      bouton.tabIndex = estActif ? 0 : -1;
+      $(`panneau-${bouton.dataset.onglet}`).hidden = !estActif;
+    });
+    if (nom === 'AJOUT') afficherFormulaire();
+    else if (etat.perimes[nom]) chargerOnglet(nom, false);
+  }
+
+  /**
+   * Charge les données d'un onglet de consultation.
+   * @param {string} nom 'BILAN' ou 'SYNTHESE'.
+   * @param {boolean} forcer Vrai pour ignorer le cache du serveur.
+   * @return {Promise<void>}
+   */
+  function chargerOnglet(nom, forcer) {
+    if (nom === 'BILAN') return chargerBilan(forcer);
+    if (nom === 'SYNTHESE') return chargerSynthese(forcer);
+    return Promise.resolve();
+  }
+
+  /** Flèches gauche/droite pour passer d'un onglet à l'autre (accessibilité). */
+  function naviguerOngletsAuClavier(evenement) {
+    if (!['ArrowLeft', 'ArrowRight'].includes(evenement.key)) return;
+    const onglets = Array.from(document.querySelectorAll('[data-onglet]')).filter((bouton) => !bouton.hidden);
+    const position = onglets.findIndex((bouton) => bouton.dataset.onglet === etat.ongletActif);
+    const decalage = evenement.key === 'ArrowRight' ? 1 : -1;
+    const suivant = onglets[(position + decalage + onglets.length) % onglets.length];
+    afficherOnglet(suivant.dataset.onglet);
+    suivant.focus();
+  }
+
+  /** Relit le Sheet (listes et onglet courant) en contournant le cache. */
+  async function actualiser() {
+    const bouton = $('bouton-actualiser');
+    bouton.classList.add('en-cours');
+    etat.perimes = { BILAN: true, SYNTHESE: true };
+    const reponse = await appelerApi('apiGetListesDeChoix');
+    if (reponse.ok) remplirListes(reponse.data);
+    else signalerErreur(reponse);
+    await chargerOnglet(etat.ongletActif, true);
+    bouton.classList.remove('en-cours');
+  }
+
+  /* === Listes de choix ================================================= */
+
+  /**
+   * Remplit les listes déroulantes en conservant les sélections encore valides.
+   * @param {{listes: Object<string, string[]>, valeursQui: string[], avertissements: string[]}} donnees
+   */
+  function remplirListes(donnees) {
+    const { listes, valeursQui, avertissements } = donnees;
+    etat.contexte.listes = donnees;
+    const exercices = listes.EXERCICE;
+    const dernier = exercices[exercices.length - 1] || '';
+    const tous = { valeur: '', libelle: etat.contexte.reglages.libelleTous };
+    remplirSelect($('bilan-exercice'), [tous].concat(versOptions(exercices)), '');
+    remplirSelect($('synthese-exercice'), versOptions(exercices).concat([tous]), dernier);
+    ['COMPTE', 'MOYEN', 'EXERCICE', 'CATEGORIE'].forEach((cle) => {
+      const choisir = { valeur: '', libelle: '— Choisir —' };
+      remplirSelect($(`champ-${cle}`), [choisir].concat(versOptions(listes[cle])), cle === 'EXERCICE' ? dernier : '');
+    });
+    const datalist = $('liste-qui');
+    datalist.replaceChildren(...valeursQui.map((valeur) => creer('option', { attributs: { value: valeur } })));
+    afficherAvertissements(avertissements);
+  }
+
+  /**
+   * @param {string[]} valeurs Valeurs d'une liste.
+   * @return {{valeur: string, libelle: string}[]} Options.
+   */
+  function versOptions(valeurs) {
+    return valeurs.map((valeur) => ({ valeur, libelle: valeur }));
+  }
+
+  /**
+   * Remplace les options d'une liste déroulante.
+   * @param {HTMLSelectElement} select Liste à remplir.
+   * @param {{valeur: string, libelle: string}[]} options Options.
+   * @param {string} parDefaut Valeur choisie si la sélection actuelle n'existe plus.
+   */
+  function remplirSelect(select, options, parDefaut) {
+    const actuelle = select.options.length > 0 ? select.value : null;
+    select.replaceChildren(...options.map(({ valeur, libelle }) =>
+      creer('option', { texte: libelle, attributs: { value: valeur } })));
+    const estConservee = actuelle !== null && options.some((option) => option.valeur === actuelle);
+    select.value = estConservee ? actuelle : parDefaut;
+  }
+
+  /**
+   * Affiche les avertissements de configuration (listes non paramétrées).
+   * @param {string[]} avertissements Messages.
+   */
+  function afficherAvertissements(avertissements) {
+    const bandeau = $('bandeau-avertissements');
+    bandeau.replaceChildren(creer('ul', {}, avertissements.map((message) => creer('li', { texte: message }))));
+    bandeau.hidden = avertissements.length === 0;
+  }
+
+  /* === Bilan par compte ================================================ */
+
+  /**
+   * Demande le bilan au serveur selon les filtres.
+   * @param {boolean} forcer Vrai pour ignorer le cache.
+   */
+  async function chargerBilan(forcer) {
+    const jeton = ++etat.jetons.BILAN;
+    const filtres = { exercice: $('bilan-exercice').value, dateFin: $('bilan-date-fin').value, forcer };
+    const reponse = await appelerApi('apiGetBilanParCompte', filtres);
+    if (jeton !== etat.jetons.BILAN) return;
+    if (!reponse.ok) return signalerErreur(reponse);
+    etat.perimes.BILAN = false;
+    afficherBilan(reponse.data);
+  }
+
+  /**
+   * Affiche le bilan par compte : tuiles, tableau et ligne de total.
+   * @param {Object} bilan Bilan renvoyé par apiGetBilanParCompte.
+   */
+  function afficherBilan(bilan) {
+    afficherBandeau($('bilan-avertissement'), bilan.avertissement);
+    $('bilan-tuiles').replaceChildren(
+      creerTuile('Rapproché', bilan.total.rapproche),
+      creerTuile('Non rapproché', bilan.total.nonRapproche),
+      creerTuile('Solde total', bilan.total.total, true));
+    const tableau = $('bilan-tableau');
+    tableau.tBodies[0].replaceChildren(...bilan.lignes.map(creerLigneBilan));
+    tableau.tFoot.replaceChildren(creer('tr', {}, [
+      creerCellule('Total'), creerCelluleMontant(bilan.total.rapproche),
+      creerCelluleMontant(bilan.total.nonRapproche), creerCelluleMontant(bilan.total.total),
+      creerCellule(String(bilan.total.nbNonRapprochees), 'nombre')]));
+    $('bilan-detail').hidden = true;
+    etat.compteSelectionne = null;
+    afficherMiseAJour(bilan.miseAJour);
+  }
+
+  /**
+   * Ligne de compte cliquable (ouvre le détail des non rapprochées).
+   * @param {Object} ligne Ligne du bilan.
+   * @return {HTMLTableRowElement} Ligne du tableau.
+   */
+  function creerLigneBilan(ligne) {
+    const badge = ligne.nbNonRapprochees > 0
+      ? creer('span', { classe: 'badge', texte: String(ligne.nbNonRapprochees) })
+      : creer('span', { classe: 'badge badge--succes', texte: '0' });
+    const tr = creer('tr', { classe: 'cliquable', attributs: { tabindex: '0', title: 'Voir les opérations non rapprochées' } }, [
+      creerCellule(ligne.compte || '—'), creerCelluleMontant(ligne.rapproche),
+      creerCelluleMontant(ligne.nonRapproche), creerCelluleMontant(ligne.total),
+      creer('td', { classe: 'nombre' }, [badge])]);
+    const ouvrir = () => chargerDetailNonRapprochees(ligne.compte, tr);
+    tr.addEventListener('click', ouvrir);
+    tr.addEventListener('keydown', (evenement) => { if (evenement.key === 'Enter' || evenement.key === ' ') { evenement.preventDefault(); ouvrir(); } });
+    return tr;
+  }
+
+  /**
+   * Demande la liste des opérations non rapprochées d'un compte.
+   * @param {string} compte Compte choisi.
+   * @param {HTMLTableRowElement} ligne Ligne cliquée (mise en évidence).
+   */
+  async function chargerDetailNonRapprochees(compte, ligne) {
+    const jeton = ++etat.jetons.DETAIL;
+    document.querySelectorAll('#bilan-tableau tr.selectionnee').forEach((tr) => tr.classList.remove('selectionnee'));
+    ligne.classList.add('selectionnee');
+    etat.compteSelectionne = compte;
+    const filtres = { compte, exercice: $('bilan-exercice').value, dateFin: $('bilan-date-fin').value };
+    const reponse = await appelerApi('apiGetDetailNonRapprochees', filtres);
+    if (jeton !== etat.jetons.DETAIL) return;
+    if (!reponse.ok) return signalerErreur(reponse);
+    afficherDetailNonRapprochees(reponse.data);
+  }
+
+  /**
+   * Affiche la liste (lecture seule) des opérations non rapprochées d'un compte.
+   * @param {{compte: string, operations: Object[]}} detail Détail renvoyé par le serveur.
+   */
+  function afficherDetailNonRapprochees(detail) {
+    const conteneur = $('bilan-detail');
+    const titre = creer('h2', { classe: 'carte__titre', texte: `Non rapprochées — ${detail.compte || '—'}` });
+    const liste = creer('div', { classe: 'liste' }, detail.operations.map(creerLigneOperation));
+    liste.style.maxHeight = `${UI_CONFIG.LIGNES_AVANT_DEFILEMENT * UI_CONFIG.HAUTEUR_LIGNE_DETAIL_PX}px`;
+    const vide = creer('p', { classe: 'vide', texte: '✓ Toutes les opérations de ce compte sont rapprochées.' });
+    conteneur.replaceChildren(titre, detail.operations.length > 0 ? liste : vide);
+    conteneur.hidden = false;
+    conteneur.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  /**
+   * @param {Object} operation Opération non rapprochée.
+   * @return {HTMLElement} Élément de liste.
+   */
+  function creerLigneOperation(operation) {
+    const meta = [operation.date, operation.qui, operation.moyen].filter(Boolean).join(' • ');
+    return creer('div', { classe: 'ligne-liste' }, [
+      creer('div', { classe: 'ligne-liste__haut' }, [
+        creer('span', { texte: operation.quoi || '—' }),
+        creer('span', { classe: classeMontant(operation.montant), texte: formaterMontant(operation.montant) })]),
+      creer('div', { classe: 'ligne-liste__meta', texte: meta }),
+      operation.commentaire ? creer('div', { classe: 'ligne-liste__meta', texte: operation.commentaire }) : null]);
+  }
+
+  /* === Synthèse par catégorie ========================================== */
+
+  /**
+   * Demande la synthèse d'un exercice, ou la vue croisée si « Tous » est choisi.
+   * @param {boolean} forcer Vrai pour ignorer le cache.
+   */
+  async function chargerSynthese(forcer) {
+    const jeton = ++etat.jetons.SYNTHESE;
+    const exercice = $('synthese-exercice').value;
+    $('synthese-comparer').disabled = exercice === '';
+    const reponse = exercice === ''
+      ? await appelerApi('apiGetSyntheseTousExercices', { forcer })
+      : await appelerApi('apiGetSyntheseParCategorie', { exercice, comparer: $('synthese-comparer').checked, forcer });
+    if (jeton !== etat.jetons.SYNTHESE) return;
+    if (!reponse.ok) return signalerErreur(reponse);
+    etat.perimes.SYNTHESE = false;
+    afficherBandeau($('synthese-avertissement'), reponse.data.avertissement);
+    afficherMiseAJour(reponse.data.miseAJour);
+    if (exercice === '') return afficherVueCroisee(reponse.data);
+    etat.synthese = reponse.data;
+    etat.tri = { cle: 'solde', sens: -1 };
+    afficherSynthese();
+  }
+
+  /** Affiche la synthèse de l'exercice courant (etat.synthese). */
+  function afficherSynthese() {
+    const synthese = etat.synthese;
+    const { nombre, montant } = synthese.nonRapprochees;
+    const indicateur = creer('div', { classe: 'bandeau', attributs: { role: 'status' } }, [
+      creer('span', { classe: nombre > 0 ? 'badge' : 'badge badge--succes', texte: nombre > 0 ? 'À rapprocher' : 'Rapproché' }),
+      creer('span', { texte: ` ${nombre} opération(s) non rapprochée(s), ${formaterMontant(montant)}` })]);
+    const tuiles = creer('div', { classe: 'tuiles' }, [
+      creerTuile('Recettes', synthese.totaux.recettes),
+      creerTuile('Dépenses', -synthese.totaux.depenses),
+      creerTuile('Résultat', synthese.totaux.resultat, true)]);
+    $('synthese-contenu').replaceChildren(indicateur, tuiles, creerTableauSynthese(synthese), creerGraphique(synthese.lignes));
+  }
+
+  /**
+   * Tableau de synthèse trié selon etat.tri, avec pied (totaux et résultat).
+   * @param {Object} synthese Synthèse renvoyée par le serveur.
+   * @return {HTMLElement} Carte contenant le tableau.
+   */
+  function creerTableauSynthese(synthese) {
+    const comparer = synthese.exercicePrecedent !== null;
+    const colonnes = [['categorie', 'Catégorie'], ['recettes', 'Recettes'], ['depenses', 'Dépenses'],
+      ['solde', 'Solde'], ['nbOperations', 'Nb'], ['pourcentage', '% du total']];
+    if (comparer) colonnes.push(['soldePrecedent', `Solde ${synthese.exercicePrecedent}`], ['ecart', 'Écart']);
+    const entete = creer('tr', {}, colonnes.map(([cle, libelle]) => creerEnteteTriable(cle, libelle)));
+    const lignes = trierLignes(synthese.lignes).map((ligne) => creerLigneSynthese(ligne, comparer));
+    const tableau = creer('table', {}, [
+      creer('caption', { classe: 'label legende-tableau', texte: `Exercice ${synthese.exercice}` }),
+      creer('thead', {}, [entete]), creer('tbody', {}, lignes), creerPiedSynthese(synthese.totaux, colonnes.length)]);
+    return creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]);
+  }
+
+  /**
+   * En-tête cliquable qui modifie le tri du tableau de synthèse.
+   * @param {string} cle Propriété triée.
+   * @param {string} libelle Libellé affiché.
+   * @return {HTMLTableCellElement} Cellule d'en-tête.
+   */
+  function creerEnteteTriable(cle, libelle) {
+    const estTriee = etat.tri.cle === cle;
+    const th = creer('th', { texte: libelle, classe: cle === 'categorie' ? '' : 'nombre', attributs: {
+      scope: 'col', tabindex: '0', 'data-tri': cle,
+      'aria-sort': estTriee ? (etat.tri.sens > 0 ? 'ascending' : 'descending') : 'none' } });
+    const trier = () => {
+      etat.tri = { cle, sens: estTriee ? -etat.tri.sens : (cle === 'categorie' ? 1 : -1) };
+      afficherSynthese();
+    };
+    th.addEventListener('click', trier);
+    th.addEventListener('keydown', (evenement) => { if (evenement.key === 'Enter') trier(); });
+    return th;
+  }
+
+  /**
+   * @param {Object[]} lignes Lignes de synthèse.
+   * @return {Object[]} Copie triée selon etat.tri.
+   */
+  function trierLignes(lignes) {
+    const { cle, sens } = etat.tri;
+    return lignes.slice().sort((a, b) => {
+      const comparaison = typeof a[cle] === 'string'
+        ? a[cle].localeCompare(b[cle], etat.contexte.reglages.locale) : (a[cle] || 0) - (b[cle] || 0);
+      return comparaison * sens;
+    });
+  }
+
+  /**
+   * @param {Object} ligne Ligne de synthèse.
+   * @param {boolean} comparer Vrai si les colonnes N-1 sont affichées.
+   * @return {HTMLTableRowElement} Ligne du tableau.
+   */
+  function creerLigneSynthese(ligne, comparer) {
+    const pourcentage = `${ligne.pourcentage.toLocaleString(etat.contexte.reglages.locale)} %`;
+    const nature = ligne.nature === 'RECETTE' ? 'des recettes' : 'des dépenses';
+    const cellules = [
+      creerCellule(ligne.categorie), creerCelluleMontant(ligne.recettes), creerCelluleMontant(-ligne.depenses, ligne.depenses),
+      creerCelluleMontant(ligne.solde), creerCellule(String(ligne.nbOperations), 'nombre'),
+      creer('td', { classe: 'nombre', texte: pourcentage, attributs: { title: `${pourcentage} ${nature}` } })];
+    if (comparer) cellules.push(creerCelluleMontant(ligne.soldePrecedent), creerCelluleMontant(ligne.ecart));
+    return creer('tr', {}, cellules);
+  }
+
+  /**
+   * Pied du tableau de synthèse : totaux puis résultat (excédent / déficit).
+   * @param {Object} totaux Totaux de l'exercice.
+   * @param {number} nbColonnes Nombre de colonnes du tableau.
+   * @return {HTMLTableSectionElement} Pied de tableau.
+   */
+  function creerPiedSynthese(totaux, nbColonnes) {
+    const estExcedent = totaux.resultat >= 0;
+    const totalLigne = creer('tr', {}, [
+      creerCellule('Total'), creerCelluleMontant(totaux.recettes), creerCelluleMontant(-totaux.depenses, totaux.depenses),
+      creerCelluleMontant(totaux.resultat), creerCellule(String(totaux.nbOperations), 'nombre'),
+      creer('td', { attributs: { colspan: String(nbColonnes - 5) } })]);
+    const resultat = creer('tr', { classe: `resultat ${estExcedent ? 'resultat--excedent' : 'resultat--deficit'}` }, [
+      creer('td', { attributs: { colspan: '3' } }, [
+        creer('span', { texte: 'Résultat de l\'exercice ' }),
+        creer('span', { classe: estExcedent ? 'badge badge--succes' : 'badge badge--danger', texte: estExcedent ? 'Excédent' : 'Déficit' })]),
+      creer('td', { classe: 'nombre montant', texte: formaterMontant(totaux.resultat) }),
+      creer('td', { attributs: { colspan: String(nbColonnes - 4) } })]);
+    return creer('tfoot', {}, [totalLigne, resultat]);
+  }
+
+  /**
+   * Graphique en barres horizontales recettes / dépenses par catégorie.
+   * @param {Object[]} lignes Lignes de synthèse.
+   * @return {HTMLElement} Carte du graphique.
+   */
+  function creerGraphique(lignes) {
+    const actives = lignes.filter((ligne) => ligne.recettes > 0 || ligne.depenses > 0);
+    const maximum = Math.max(1, ...actives.map((ligne) => Math.max(ligne.recettes, ligne.depenses)));
+    const barre = (classe, valeur) => {
+      const element = creer('div', { classe: `barre ${classe}`, attributs: { title: formaterMontant(valeur) } });
+      element.style.width = `${(valeur / maximum) * 100}%`;
+      return valeur > 0 ? element : null;
+    };
+    const rangs = actives.map((ligne) => creer('div', { classe: 'graphique__ligne' }, [
+      creer('span', { classe: 'graphique__libelle', texte: ligne.categorie }),
+      creer('div', { classe: 'graphique__barres' }, [barre('barre--recette', ligne.recettes), barre('barre--depense', ligne.depenses)])]));
+    const legende = creer('div', { classe: 'legende' }, [
+      creer('span', { classe: 'recette', texte: 'Recettes' }), creer('span', { classe: 'depense', texte: 'Dépenses' })]);
+    return creer('div', { classe: 'carte graphique', attributs: { 'aria-hidden': 'true' } }, [legende].concat(rangs));
+  }
+
+  /**
+   * Tableau croisé catégories × exercices (soldes), avec total par exercice.
+   * @param {{exercices: string[], lignes: Object[], totaux: number[]}} vue Vue renvoyée par le serveur.
+   */
+  function afficherVueCroisee(vue) {
+    const entete = creer('tr', {}, [creer('th', { texte: 'Catégorie', attributs: { scope: 'col' } })].concat(
+      vue.exercices.map((exercice) => creer('th', { classe: 'nombre', texte: exercice || '—', attributs: { scope: 'col' } }))));
+    const lignes = vue.lignes.map((ligne) => creer('tr', {}, [creerCellule(ligne.categorie)].concat(
+      ligne.soldes.map((solde) => creerCelluleMontant(solde)))));
+    const total = creer('tr', {}, [creerCellule('Résultat')].concat(vue.totaux.map((solde) => creerCelluleMontant(solde))));
+    const tableau = creer('table', {}, [
+      creer('caption', { classe: 'label legende-tableau', texte: 'Soldes par catégorie et par exercice' }),
+      creer('thead', {}, [entete]), creer('tbody', {}, lignes), creer('tfoot', {}, [total])]);
+    $('synthese-contenu').replaceChildren(
+      creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]));
+  }
+
+  /* === Formulaire d'ajout ============================================== */
+
+  /** Prépare le formulaire (valeurs par défaut, état du bouton) à l'ouverture de l'onglet. */
+  function afficherFormulaire() {
+    const formulaire = $('formulaire-ajout');
+    const { saisie } = etat.contexte.reglages;
+    $('champ-QUAND').min = saisie.DATE_MIN;
+    $('champ-QUAND').max = saisie.dateMax;
+    $('bouton-enregistrer').disabled = !etat.contexte.ajoutPossible;
+    if (!formulaire.dataset.initialise) {
+      reinitialiserFormulaire([]);
+      formulaire.dataset.initialise = 'oui';
+    }
+  }
+
+  /** Affiche les libellés des champs (en-têtes du Sheet) et les marques d'obligation. */
+  function appliquerLibellesFormulaire() {
+    const { colonnes, saisie } = etat.contexte.reglages;
+    document.querySelectorAll('[data-libelle]').forEach((label) => {
+      const cle = label.dataset.libelle;
+      const estFacultatif = saisie.CHAMPS_FACULTATIFS.includes(cle);
+      label.replaceChildren(document.createTextNode(`${colonnes[cle]} `),
+        estFacultatif ? creer('span', { classe: 'attenue', texte: '(facultatif)' })
+          : creer('span', { classe: 'obligatoire', texte: '*', attributs: { 'aria-hidden': 'true' } }));
+      const champ = $(`champ-${cle}`);
+      if (champ && !estFacultatif) champ.required = true;
+      if (champ && saisie.LONGUEUR_MAX[cle]) champ.maxLength = saisie.LONGUEUR_MAX[cle];
+    });
+    document.querySelector('[data-libelle-case="RAPPROCHE"]').textContent = colonnes.RAPPROCHE;
+  }
+
+  /**
+   * Remet le formulaire à ses valeurs par défaut.
+   * @param {string[]} conserves Clés des champs à ne pas vider.
+   */
+  function reinitialiserFormulaire(conserves) {
+    const { saisie } = etat.contexte.reglages;
+    const exercices = etat.contexte.listes ? etat.contexte.listes.listes.EXERCICE : [];
+    const parDefaut = {
+      COMPTE: '', QUAND: aujourdhuiIso(), QUI: '', QUOI: '', MOYEN: '', COMBIEN: '', CATEGORIE: '', COMMENTAIRE: '',
+      EXERCICE: exercices[exercices.length - 1] || ''
+    };
+    Object.keys(parDefaut).filter((cle) => !conserves.includes(cle))
+      .forEach((cle) => { $(`champ-${cle}`).value = parDefaut[cle]; });
+    $('champ-RAPPROCHE').checked = saisie.RAPPROCHE_PAR_DEFAUT;
+    afficherErreursFormulaire({});
+  }
+
+  /** @return {Object} Saisie du formulaire, au format attendu par apiAjouterOperation. */
+  function lireSaisie() {
+    const saisie = {};
+    CHAMPS_FORMULAIRE.forEach((cle) => { saisie[cle] = $(`champ-${cle}`).value; });
+    saisie.RAPPROCHE = $('champ-RAPPROCHE').checked;
+    return saisie;
+  }
+
+  /**
+   * Contrôle la saisie avant envoi (le serveur revalide tout).
+   * @param {Object} saisie Saisie du formulaire.
+   * @return {Object<string, string>} Erreurs par champ.
+   */
+  function validerSaisie(saisie) {
+    const { saisie: regles, messages } = etat.contexte.reglages;
+    const erreurs = {};
+    CHAMPS_FORMULAIRE.forEach((cle) => {
+      const valeur = String(saisie[cle]).trim();
+      if (valeur === '' && !regles.CHAMPS_FACULTATIFS.includes(cle)) erreurs[cle] = messages.CHAMP_OBLIGATOIRE;
+      else if (regles.LONGUEUR_MAX[cle] && valeur.length > regles.LONGUEUR_MAX[cle]) {
+        erreurs[cle] = remplacerVariables(messages.TEXTE_TROP_LONG, { max: regles.LONGUEUR_MAX[cle] });
+      }
+    });
+    if (!erreurs.COMBIEN && !estMontantValide(saisie.COMBIEN, regles.DECIMALES_MONTANT)) {
+      erreurs.COMBIEN = remplacerVariables(messages.MONTANT_INVALIDE, { decimales: regles.DECIMALES_MONTANT });
+    }
+    if (!erreurs.QUAND) {
+      const erreurDate = validerDate(saisie.QUAND, regles, messages);
+      if (erreurDate) erreurs.QUAND = erreurDate;
+    }
+    return erreurs;
+  }
+
+  /**
+   * @param {string} texte Montant saisi (virgule ou point).
+   * @param {number} decimales Nombre maximal de décimales.
+   * @return {boolean} Vrai si le montant est un nombre ≠ 0 (signe facultatif) avec assez peu de décimales.
+   */
+  function estMontantValide(texte, decimales) {
+    const nettoye = String(texte).replace(/[\s  ]/g, '');
+    const motif = decimales > 0 ? new RegExp(`^[+-]?\\d+([.,]\\d{1,${decimales}})?$`) : /^[+-]?\d+$/;
+    return motif.test(nettoye) && Number(nettoye.replace(',', '.')) !== 0;
+  }
+
+  /**
+   * @param {string} valeur Date AAAA-MM-JJ du sélecteur.
+   * @param {Object} regles Règles de saisie.
+   * @param {Object} messages Messages.
+   * @return {string} Message d'erreur, vide si la date est valide.
+   */
+  function validerDate(valeur, regles, messages) {
+    const correspondance = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valeur);
+    if (!correspondance) return messages.DATE_INVALIDE;
+    const [annee, mois, jour] = correspondance.slice(1).map(Number);
+    const date = new Date(annee, mois - 1, jour);
+    if (date.getFullYear() !== annee || date.getMonth() !== mois - 1 || date.getDate() !== jour) return messages.DATE_INVALIDE;
+    if (valeur < regles.DATE_MIN || valeur > regles.dateMax) {
+      return remplacerVariables(messages.DATE_HORS_PLAGE, { min: isoVersAffichage(regles.DATE_MIN), max: isoVersAffichage(regles.dateMax) });
+    }
+    return '';
+  }
+
+  /**
+   * Affiche les erreurs sous chaque champ (et efface les autres).
+   * @param {Object<string, string>} erreurs Erreurs par champ.
+   */
+  function afficherErreursFormulaire(erreurs) {
+    CHAMPS_FORMULAIRE.forEach((cle) => {
+      const message = erreurs[cle] || '';
+      $(`erreur-${cle}`).textContent = message;
+      const champ = $(`champ-${cle}`) || $(`erreur-${cle}`).parentElement;
+      champ.closest('.champ').classList.toggle('champ--erreur', message !== '');
+      if (champ.setAttribute) champ.setAttribute('aria-invalid', String(message !== ''));
+    });
+  }
+
+  /**
+   * Envoie le formulaire : contrôle local, puis enregistrement côté serveur.
+   * Le bouton est désactivé pendant l'envoi (protection contre le double clic).
+   * @param {SubmitEvent} evenement Soumission du formulaire.
+   */
+  async function envoyerFormulaire(evenement) {
+    evenement.preventDefault();
+    if (etat.envoiEnCours || !etat.contexte.ajoutPossible) return;
+    const saisie = lireSaisie();
+    const erreurs = validerSaisie(saisie);
+    afficherErreursFormulaire(erreurs);
+    if (Object.keys(erreurs).length > 0) return refuserEnvoi(erreurs);
+    basculerEnvoi(true);
+    const reponse = await appelerApi('apiAjouterOperation', saisie);
+    basculerEnvoi(false);
+    if (reponse.ok) return confirmerAjout(reponse.data, saisie);
+    if (reponse.erreurs) afficherErreursFormulaire(reponse.erreurs);
+    signalerErreur(reponse);
+  }
+
+  /**
+   * Signale les erreurs de saisie et place le curseur sur le premier champ fautif.
+   * @param {Object<string, string>} erreurs Erreurs par champ.
+   */
+  function refuserEnvoi(erreurs) {
+    afficherToast(etat.contexte.reglages.messages.CORRIGER_ERREURS, 'erreur');
+    const premier = CHAMPS_FORMULAIRE.find((cle) => erreurs[cle]);
+    $(`champ-${premier}`).focus();
+  }
+
+  /**
+   * Après un ajout réussi : notification, formulaire prêt pour la saisie
+   * suivante, bilans à recharger.
+   * @param {{ligne: number, message: string}} resultat Réponse du serveur.
+   * @param {Object} saisie Saisie enregistrée.
+   */
+  function confirmerAjout(resultat, saisie) {
+    afficherToast(`✓ ${resultat.message}`, 'succes');
+    reinitialiserFormulaire(etat.contexte.reglages.saisie.CHAMPS_CONSERVES_APRES_AJOUT);
+    etat.perimes = { BILAN: true, SYNTHESE: true };
+    ajouterSuggestionQui(saisie.QUI.trim());
+    $('champ-QUI').focus();
+  }
+
+  /**
+   * Ajoute une valeur aux suggestions du champ Qui si elle est nouvelle.
+   * @param {string} valeur Valeur saisie.
+   */
+  function ajouterSuggestionQui(valeur) {
+    const datalist = $('liste-qui');
+    const existe = Array.from(datalist.options).some((option) => option.value === valeur);
+    if (valeur && !existe) datalist.appendChild(creer('option', { attributs: { value: valeur } }));
+  }
+
+  /**
+   * Active ou désactive l'indicateur d'envoi du bouton Enregistrer.
+   * @param {boolean} estEnCours Vrai pendant l'envoi.
+   */
+  function basculerEnvoi(estEnCours) {
+    etat.envoiEnCours = estEnCours;
+    $('bouton-enregistrer').disabled = estEnCours;
+    $('chargeur-enregistrer').hidden = !estEnCours;
+  }
+
+  /* === Appels au serveur =============================================== */
+
+  /**
+   * Appelle une fonction api* du serveur. Ne rejette jamais : une panne
+   * réseau ou une erreur imprévue devient une réponse { ok: false, message }.
+   * @param {string} nomFonction Nom de la fonction serveur.
+   * @param {...*} parametres Paramètres transmis.
+   * @return {Promise<Object>} Réponse normalisée.
+   */
+  function appelerApi(nomFonction, ...parametres) {
+    const messageGenerique = document.body.dataset.erreurInattendue;
+    return new Promise((resoudre) => {
+      google.script.run
+        .withSuccessHandler((reponse) => resoudre(reponse || { ok: false, message: messageGenerique }))
+        .withFailureHandler((erreur) => {
+          console.error(erreur);
+          resoudre({ ok: false, message: messageGenerique });
+        })[nomFonction](...parametres);
+    });
+  }
+
+  /**
+   * Affiche le message d'une réponse en échec. Si l'accès a été retiré,
+   * recharge la page pour afficher l'écran « Accès non autorisé ».
+   * @param {Object} reponse Réponse en échec.
+   */
+  function signalerErreur(reponse) {
+    afficherToast(`✗ ${reponse.message}`, 'erreur');
+    if (reponse.accesRefuse) window.top.location.reload();
+  }
+
+  /* === Composants d'affichage ========================================== */
+
+  /**
+   * Crée un élément DOM sans jamais interpréter de HTML.
+   * @param {string} balise Nom de la balise.
+   * @param {{classe?: string, texte?: string, attributs?: Object<string, string>}} [options]
+   * @param {Array<?Node>} [enfants] Enfants (les valeurs nulles sont ignorées).
+   * @return {HTMLElement} Élément créé.
+   */
+  function creer(balise, options = {}, enfants = []) {
+    const element = document.createElement(balise);
+    if (options.classe) element.className = options.classe;
+    if (options.texte !== undefined) element.textContent = options.texte;
+    Object.entries(options.attributs || {}).forEach(([nom, valeur]) => element.setAttribute(nom, valeur));
+    enfants.filter(Boolean).forEach((enfant) => element.appendChild(enfant));
+    return element;
+  }
+
+  /**
+   * @param {string} texte Contenu.
+   * @param {string} [classe] Classe CSS.
+   * @return {HTMLTableCellElement} Cellule.
+   */
+  function creerCellule(texte, classe) {
+    return creer('td', { classe, texte });
+  }
+
+  /**
+   * Cellule de montant, colorée si négative.
+   * @param {?number} montant Montant à colorer et afficher.
+   * @param {number} [affiche] Montant à afficher s'il diffère (ex. dépense en valeur absolue).
+   * @return {HTMLTableCellElement} Cellule.
+   */
+  function creerCelluleMontant(montant, affiche) {
+    if (montant === null || montant === undefined) return creerCellule('—', 'nombre');
+    const valeur = affiche === undefined ? montant : affiche;
+    return creerCellule(formaterMontant(valeur), `nombre montant ${classeMontant(montant)}`);
+  }
+
+  /**
+   * Tuile de statistique.
+   * @param {string} libelle Libellé (affiché en capitales).
+   * @param {number} montant Montant.
+   * @param {boolean} [estAccent] Vrai pour la tuile principale.
+   * @return {HTMLElement} Tuile.
+   */
+  function creerTuile(libelle, montant, estAccent) {
+    const classeValeur = montant > 0 ? 'montant--positif' : classeMontant(montant);
+    return creer('div', { classe: estAccent ? 'tuile tuile--accent' : 'tuile' }, [
+      creer('div', { classe: 'label', texte: libelle }),
+      creer('div', { classe: `tuile__valeur ${classeValeur}`, texte: formaterMontant(montant) })]);
+  }
+
+  /**
+   * Affiche ou masque un bandeau d'avertissement.
+   * @param {HTMLElement} bandeau Bandeau.
+   * @param {string} message Message (vide = masquer).
+   */
+  function afficherBandeau(bandeau, message) {
+    bandeau.textContent = message || '';
+    bandeau.hidden = !message;
+  }
+
+  /** @param {string} horodatage Date et heure de dernière mise à jour. */
+  function afficherMiseAJour(horodatage) {
+    if (horodatage) $('mise-a-jour').textContent = horodatage;
+  }
+
+  /**
+   * Notification flottante en bas d'écran.
+   * @param {string} message Message.
+   * @param {'succes'|'erreur'} type Type de notification.
+   */
+  function afficherToast(message, type) {
+    const toast = $('toast');
+    toast.textContent = message;
+    toast.className = `toast toast--visible toast--${type}`;
+    clearTimeout(afficherToast.minuterie);
+    const duree = type === 'erreur' ? UI_CONFIG.DUREE_TOAST_ERREUR_MS : UI_CONFIG.DUREE_TOAST_MS;
+    afficherToast.minuterie = setTimeout(() => toast.classList.remove('toast--visible'), duree);
+  }
+
+  /* === Formats et outils =============================================== */
+
+  /** @param {string} id Identifiant. @return {HTMLElement} Élément. */
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  /** @param {number} montant Montant en euros. @return {string} Montant formaté (1 234,56 €). */
+  function formaterMontant(montant) {
+    return etat.formateurMontant.format(montant);
+  }
+
+  /** @param {number} montant Montant. @return {string} Classe CSS de couleur. */
+  function classeMontant(montant) {
+    return montant < 0 ? 'montant--negatif' : '';
+  }
+
+  /** @return {string} Date du jour AAAA-MM-JJ (heure locale du navigateur). */
+  function aujourdhuiIso() {
+    const maintenant = new Date();
+    const deuxChiffres = (nombre) => String(nombre).padStart(2, '0');
+    return `${maintenant.getFullYear()}-${deuxChiffres(maintenant.getMonth() + 1)}-${deuxChiffres(maintenant.getDate())}`;
+  }
+
+  /** @param {string} dateIso Date AAAA-MM-JJ. @return {string} Date JJ/MM/AAAA. */
+  function isoVersAffichage(dateIso) {
+    return dateIso.split('-').reverse().join('/');
+  }
+
+  /**
+   * Remplace les variables {nom} d'un message.
+   * @param {string} message Message.
+   * @param {Object<string, *>} variables Valeurs.
+   * @return {string} Message complété.
+   */
+  function remplacerVariables(message, variables) {
+    return message.replace(/\{(\w+)\}/g, (tout, nom) => (nom in variables ? String(variables[nom]) : tout));
+  }
+</script>

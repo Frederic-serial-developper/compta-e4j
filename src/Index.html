@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<!-- ===========================================================================
+  Index.html — Squelette de la page
+  Deux états : page « Accès non autorisé » (aucune donnée transmise) ou
+  application. Les données sont chargées ensuite par App.html via les api*.
+=========================================================================== -->
+<html lang="fr">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles') ?>
+</head>
+<body data-erreur-inattendue="<?= page.messageErreur ?>">
+<? if (!page.estAutorise) { ?>
+  <main class="page">
+    <section class="etat-plein" role="alert">
+      <div class="etat-plein__icone" aria-hidden="true">✗</div>
+      <h1><?= page.titreRefus ?></h1>
+      <p><?= page.message ?></p>
+    </section>
+  </main>
+<? } else { ?>
+  <main class="page">
+    <header class="entete">
+      <div class="entete__marque">
+        <div class="logo" aria-hidden="true">€</div>
+        <div>
+          <h1 class="entete__titre"><?= page.titre ?></h1>
+          <p class="entete__sous-titre"><?= page.utilisateur.nom ?> · <?= page.utilisateur.role ?></p>
+        </div>
+      </div>
+      <button type="button" id="bouton-actualiser" class="bouton-icone" title="Actualiser" aria-label="Actualiser les données">
+        <span aria-hidden="true">↻</span>
+      </button>
+    </header>
+
+    <? if (page.problemes.length > 0) { ?>
+      <div class="bandeau bandeau--danger" role="alert">
+        <ul>
+          <? for (var i = 0; i < page.problemes.length; i++) { ?><li><?= page.problemes[i] ?></li><? } ?>
+        </ul>
+      </div>
+    <? } ?>
+    <div id="bandeau-avertissements" class="bandeau" role="status" hidden></div>
+
+    <nav class="onglets" role="tablist" aria-label="Sections">
+      <button type="button" class="onglet" role="tab" id="onglet-BILAN" data-onglet="BILAN" aria-controls="panneau-BILAN" aria-selected="false">Bilan par compte</button>
+      <button type="button" class="onglet" role="tab" id="onglet-SYNTHESE" data-onglet="SYNTHESE" aria-controls="panneau-SYNTHESE" aria-selected="false">Synthèse par catégorie</button>
+      <button type="button" class="onglet" role="tab" id="onglet-AJOUT" data-onglet="AJOUT" aria-controls="panneau-AJOUT" aria-selected="false" hidden>+ Ajouter</button>
+    </nav>
+
+    <!-- === Bilan par compte ============================================== -->
+    <section id="panneau-BILAN" class="pile" role="tabpanel" aria-labelledby="onglet-BILAN" hidden>
+      <div class="carte filtres">
+        <div class="champ">
+          <label class="label" for="bilan-exercice">Exercice</label>
+          <select id="bilan-exercice"></select>
+        </div>
+        <div class="champ">
+          <label class="label" for="bilan-date-fin">Solde au</label>
+          <input type="date" id="bilan-date-fin">
+        </div>
+      </div>
+      <div id="bilan-avertissement" class="bandeau" role="status" hidden></div>
+      <div id="bilan-tuiles" class="tuiles"></div>
+      <div class="carte">
+        <div class="tableau-defilant">
+          <table id="bilan-tableau">
+            <caption class="label legende-tableau">Cliquez sur un compte pour voir ses opérations non rapprochées</caption>
+            <thead>
+              <tr>
+                <th scope="col">Compte</th>
+                <th scope="col" class="nombre">Rapproché</th>
+                <th scope="col" class="nombre">Non rapproché</th>
+                <th scope="col" class="nombre">Solde total</th>
+                <th scope="col" class="nombre">Non rappr.</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot></tfoot>
+          </table>
+        </div>
+      </div>
+      <div id="bilan-detail" class="carte" hidden></div>
+    </section>
+
+    <!-- === Synthèse par catégorie ======================================== -->
+    <section id="panneau-SYNTHESE" class="pile" role="tabpanel" aria-labelledby="onglet-SYNTHESE" hidden>
+      <div class="carte filtres">
+        <div class="champ">
+          <label class="label" for="synthese-exercice">Exercice</label>
+          <select id="synthese-exercice"></select>
+        </div>
+        <label class="case" for="synthese-comparer">
+          <input type="checkbox" id="synthese-comparer">
+          <span>Comparer avec l'exercice précédent</span>
+        </label>
+      </div>
+      <div id="synthese-avertissement" class="bandeau" role="status" hidden></div>
+      <div id="synthese-contenu" class="pile"></div>
+    </section>
+
+    <!-- === Ajout d'une opération ========================================= -->
+    <section id="panneau-AJOUT" role="tabpanel" aria-labelledby="onglet-AJOUT" hidden>
+      <form id="formulaire-ajout" class="carte formulaire" novalidate>
+        <div class="champ">
+          <label class="label" for="champ-COMPTE" data-libelle="COMPTE">Compte</label>
+          <select id="champ-COMPTE" name="COMPTE" aria-describedby="erreur-COMPTE"></select>
+          <span class="champ__erreur" id="erreur-COMPTE"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-QUAND" data-libelle="QUAND">Quand</label>
+          <input type="date" id="champ-QUAND" name="QUAND" aria-describedby="erreur-QUAND">
+          <span class="champ__erreur" id="erreur-QUAND"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-QUI" data-libelle="QUI">Qui</label>
+          <input type="text" id="champ-QUI" name="QUI" list="liste-qui" autocomplete="off" placeholder="Fournisseur, membre…" aria-describedby="erreur-QUI">
+          <datalist id="liste-qui"></datalist>
+          <span class="champ__erreur" id="erreur-QUI"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-QUOI" data-libelle="QUOI">Quoi</label>
+          <input type="text" id="champ-QUOI" name="QUOI" placeholder="Objet de l'opération" aria-describedby="erreur-QUOI">
+          <span class="champ__erreur" id="erreur-QUOI"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-MOYEN" data-libelle="MOYEN">Moyen</label>
+          <select id="champ-MOYEN" name="MOYEN" aria-describedby="erreur-MOYEN"></select>
+          <span class="champ__erreur" id="erreur-MOYEN"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-COMBIEN" data-libelle="COMBIEN">Combien</label>
+          <input type="text" id="champ-COMBIEN" name="COMBIEN" autocomplete="off" placeholder="12,50 = recette, -12,50 = dépense" aria-describedby="erreur-COMBIEN">
+          <span class="champ__erreur" id="erreur-COMBIEN"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-EXERCICE" data-libelle="EXERCICE">Exercice</label>
+          <select id="champ-EXERCICE" name="EXERCICE" aria-describedby="erreur-EXERCICE"></select>
+          <span class="champ__erreur" id="erreur-EXERCICE"></span>
+        </div>
+        <label class="case" for="champ-RAPPROCHE">
+          <input type="checkbox" id="champ-RAPPROCHE" name="RAPPROCHE">
+          <span data-libelle-case="RAPPROCHE">Rapproché</span>
+        </label>
+        <div class="champ">
+          <label class="label" for="champ-CATEGORIE" data-libelle="CATEGORIE">Catégorie Bilan Financier</label>
+          <select id="champ-CATEGORIE" name="CATEGORIE" aria-describedby="erreur-CATEGORIE"></select>
+          <span class="champ__erreur" id="erreur-CATEGORIE"></span>
+        </div>
+        <div class="champ">
+          <label class="label" for="champ-COMMENTAIRE" data-libelle="COMMENTAIRE">Commentaire</label>
+          <textarea id="champ-COMMENTAIRE" name="COMMENTAIRE" placeholder="Précision utile (facultatif)" aria-describedby="erreur-COMMENTAIRE"></textarea>
+          <span class="champ__erreur" id="erreur-COMMENTAIRE"></span>
+        </div>
+        <button type="submit" id="bouton-enregistrer" class="cta">
+          <span id="chargeur-enregistrer" class="chargeur" hidden></span>
+          <span>Enregistrer</span>
+        </button>
+      </form>
+    </section>
+
+    <footer class="pied">
+      <span>Dernière mise à jour : <span id="mise-a-jour">—</span>
+        · <button type="button" id="lien-actualiser" class="lien-bouton">↻ Actualiser</button></span>
+      <a id="lien-classeur" href="#" target="_blank" rel="noopener" hidden>Ouvrir le Google Sheet</a>
+    </footer>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <?!= include('App') ?>
+<? } ?>
+</body>
+</html>
