@@ -151,7 +151,8 @@
     transition: transform var(--transition), opacity var(--transition);
   }
   .cta:active { transform: var(--echelle-appui); }
-  .cta:disabled { opacity: 0.6; cursor: progress; }
+  .cta:disabled { opacity: 0.6; cursor: not-allowed; }
+  .cta:disabled.en-envoi { cursor: progress; }
 
   .chargeur {
     width: 1em;

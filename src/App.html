@@ -73,6 +73,8 @@
     $('synthese-exercice').addEventListener('change', () => chargerSynthese(false));
     $('synthese-comparer').addEventListener('change', () => chargerSynthese(false));
     $('formulaire-ajout').addEventListener('submit', envoyerFormulaire);
+    $('formulaire-ajout').addEventListener('input', mettreAJourBoutonEnregistrer);
+    $('formulaire-ajout').addEventListener('change', mettreAJourBoutonEnregistrer);
   }
 
   /** Applique le contexte : onglet Ajouter, lien vers le Sheet, libellés, listes. */
@@ -171,6 +173,7 @@
       remplirSelect($(`champ-${cle}`), [choisir].concat(versOptions(listes[cle])), cle === 'EXERCICE' ? dernier : '');
     });
     afficherAvertissements(avertissements);
+    mettreAJourBoutonEnregistrer();  // Une sélection a pu disparaître de la liste
   }
 
   /**
@@ -500,11 +503,29 @@
     const { saisie } = etat.contexte.reglages;
     $('champ-QUAND').min = saisie.DATE_MIN;
     $('champ-QUAND').max = saisie.dateMax;
-    $('bouton-enregistrer').disabled = !etat.contexte.ajoutPossible;
     if (!formulaire.dataset.initialise) {
       reinitialiserFormulaire([]);
       formulaire.dataset.initialise = 'oui';
     }
+    mettreAJourBoutonEnregistrer();
+  }
+
+  /** @return {boolean} Vrai si tous les champs obligatoires du formulaire sont renseignés. */
+  function sontChampsObligatoiresRemplis() {
+    const facultatifs = etat.contexte.reglages.saisie.CHAMPS_FACULTATIFS;
+    return CHAMPS_FORMULAIRE.filter((cle) => !facultatifs.includes(cle))
+      .every((cle) => $(`champ-${cle}`).value.trim() !== '');
+  }
+
+  /**
+   * Grise le bouton Enregistrer pendant un envoi, si l'ajout est impossible
+   * ou tant qu'un champ obligatoire est vide (le format est contrôlé à l'envoi).
+   */
+  function mettreAJourBoutonEnregistrer() {
+    const bouton = $('bouton-enregistrer');
+    const estIncomplet = !sontChampsObligatoiresRemplis();
+    bouton.disabled = etat.envoiEnCours || !etat.contexte.ajoutPossible || estIncomplet;
+    bouton.title = estIncomplet && !etat.envoiEnCours ? 'Renseignez tous les champs obligatoires (*)' : '';
   }
 
   /** Affiche les libellés des champs (en-têtes du Sheet) et les marques d'obligation. */
@@ -536,6 +557,7 @@
     Object.keys(parDefaut).filter((cle) => !conserves.includes(cle))
       .forEach((cle) => { $(`champ-${cle}`).value = parDefaut[cle]; });
     afficherErreursFormulaire({});
+    mettreAJourBoutonEnregistrer();
   }
 
   /** @return {Object} Saisie du formulaire, au format attendu par apiAjouterOperation. */
@@ -662,8 +684,9 @@
    */
   function basculerEnvoi(estEnCours) {
     etat.envoiEnCours = estEnCours;
-    $('bouton-enregistrer').disabled = estEnCours;
+    $('bouton-enregistrer').classList.toggle('en-envoi', estEnCours);
     $('chargeur-enregistrer').hidden = !estEnCours;
+    mettreAJourBoutonEnregistrer();
   }
 
   /* === Appels au serveur =============================================== */
