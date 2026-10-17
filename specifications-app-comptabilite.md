@@ -38,7 +38,7 @@ La ligne 1 contient les en-têtes. Chaque ligne suivante est une opération.
 | `Moyen` | Liste de choix | Oui | Valeur parmi la liste définie |
 | `Combien` | Montant (€) | Oui | Nombre décimal, 2 décimales max, ≠ 0. **Positif = recette, négatif = dépense** |
 | `Exercice` | Liste de choix | Oui | Valeur parmi la liste définie |
-| `Rapproché` | Booléen (case à cocher) | Oui | `VRAI` / `FAUX` ; valeur par défaut à la saisie : `FAUX` |
+| `Rapproché` | Booléen (case à cocher) | Oui | `VRAI` / `FAUX` ; toujours `FAUX` à la saisie (non proposé dans le formulaire) |
 | `Catégorie Bilan Financier` | Liste de choix (liste fermée) | Oui | Valeur parmi la liste définie (cf. §2.3) |
 | `Commentaire` | Texte | **Non** | 0 à 500 caractères |
 
@@ -207,7 +207,6 @@ const CONFIG = deepFreeze_({
     DECIMALES_MONTANT: 2,
     DATE_MIN: '2000-01-01',                // Date la plus ancienne acceptée
     DATE_MAX_JOURS_FUTUR: 365,             // Nombre de jours acceptés après aujourd'hui
-    RAPPROCHE_PAR_DEFAUT: false,
     CHAMPS_CONSERVES_APRES_AJOUT: ['COMPTE', 'MOYEN', 'EXERCICE', 'QUAND']
   },
 
@@ -221,7 +220,7 @@ const CONFIG = deepFreeze_({
 
   /* --- 8. Technique ----------------------------------------------------- */
   TECHNIQUE: {
-    CACHE_DUREE_SECONDES: 60,              // Durée de mise en cache des calculs
+    CACHE_DUREE_SECONDES: 600,             // Durée de mise en cache des données et calculs
     VERROU_DELAI_MS: 10000                 // Attente maximale du verrou lors d'un ajout
   },
 
@@ -366,12 +365,11 @@ Réservée au rôle `Trésorier`.
 |---|---|---|
 | Compte | Liste déroulante (§2.3) | Vide (« — Choisir — ») |
 | Quand | Sélecteur de date (`<input type="date">`) | Date du jour |
-| Qui | Champ texte + suggestions (`<datalist>`) des valeurs déjà saisies | Vide |
+| Qui | Champ texte libre (sans suggestions) | Vide |
 | Quoi | Champ texte | Vide |
 | Moyen | Liste déroulante | Vide |
 | Combien | Champ numérique signé : **positif (ou sans signe) = recette, négatif = dépense** | Vide |
 | Exercice | Liste déroulante | Dernière valeur de la liste de choix |
-| Rapproché | Case à cocher | Décochée |
 | Catégorie Bilan Financier | Liste déroulante (§2.3) | Vide (« — Choisir — ») |
 | Commentaire | Zone de texte | Vide |
 
@@ -467,7 +465,8 @@ Aucune couleur ni police n'est codée en dur ailleurs. Si la charte utilise une 
 
 - Lecture de la feuille en **un seul appel** `getDataRange().getValues()` ; aucun accès cellule par cellule.
 - Calculs côté serveur ; seuls les agrégats (et les détails demandés) sont envoyés au client.
-- Cache `CacheService.getScriptCache()` des données agrégées pendant 60 s, clé incluant les filtres ; invalidé à chaque ajout d'opération.
+- Cache `CacheService.getScriptCache()` pendant 600 s : données lues du Sheet (opérations, listes de choix, découpées en morceaux de 25 000 caractères) et résultats agrégés (clé incluant les filtres) ; invalidé à chaque ajout d'opération et par le bouton « Actualiser ».
+- Au démarrage, le bilan est demandé en parallèle du contexte.
 - Objectif : affichage du bilan en < 3 s pour 5 000 lignes.
 
 ---

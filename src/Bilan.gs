@@ -53,7 +53,7 @@ function listerNonRapprochees_(operations, compte, filtres) {
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.ligne - b.ligne)
     .map((operation) => ({
       ligne: operation.ligne,
-      date: operation.dateAffichee,
+      date: operation.dateIso ? isoVersAffichage_(operation.dateIso) : '',
       qui: operation.qui,
       quoi: operation.quoi,
       moyen: operation.moyen,

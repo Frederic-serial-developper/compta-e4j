@@ -29,7 +29,8 @@
     synthese: null,
     tri: { cle: 'solde', sens: -1 },
     formateurMontant: null,
-    envoiEnCours: false
+    envoiEnCours: false,
+    bilanAnticipe: null
   };
 
   /** Champs texte et listes du formulaire, dans l'ordre d'affichage. */
@@ -40,9 +41,16 @@
 
   /* === Démarrage ======================================================= */
 
-  /** Charge le contexte utilisateur puis affiche l'onglet par défaut. */
+  /**
+   * Charge le contexte utilisateur puis affiche l'onglet par défaut.
+   * Si cet onglet est le bilan, il est demandé en même temps que le contexte
+   * (filtres initiaux : tous les exercices, jusqu'à aujourd'hui).
+   */
   async function initialiser() {
     brancherEvenements();
+    if (document.body.dataset.ongletParDefaut === 'BILAN') {
+      etat.bilanAnticipe = appelerApi('apiGetBilanParCompte', { exercice: '', dateFin: aujourdhuiIso(), forcer: false });
+    }
     const reponse = await appelerApi('apiGetContexte');
     $('chargement-initial').hidden = true;
     if (!reponse.ok) return signalerErreur(reponse);
@@ -128,15 +136,19 @@
     suivant.focus();
   }
 
-  /** Relit le Sheet (listes et onglet courant) en contournant le cache. */
+  /**
+   * Relit le Sheet en contournant le cache : la demande des listes vide le
+   * cache du serveur, l'onglet courant est ensuite calculé sur les données relues.
+   */
   async function actualiser() {
     const bouton = $('bouton-actualiser');
     bouton.classList.add('en-cours');
     etat.perimes = { BILAN: true, SYNTHESE: true };
-    const reponse = await appelerApi('apiGetListesDeChoix');
+    etat.bilanAnticipe = null;
+    const reponse = await appelerApi('apiGetListesDeChoix', { forcer: true });
     if (reponse.ok) remplirListes(reponse.data);
     else signalerErreur(reponse);
-    await chargerOnglet(etat.ongletActif, true);
+    await chargerOnglet(etat.ongletActif, false);
     bouton.classList.remove('en-cours');
   }
 
@@ -144,10 +156,10 @@
 
   /**
    * Remplit les listes déroulantes en conservant les sélections encore valides.
-   * @param {{listes: Object<string, string[]>, valeursQui: string[], avertissements: string[]}} donnees
+   * @param {{listes: Object<string, string[]>, avertissements: string[]}} donnees
    */
   function remplirListes(donnees) {
-    const { listes, valeursQui, avertissements } = donnees;
+    const { listes, avertissements } = donnees;
     etat.contexte.listes = donnees;
     const exercices = listes.EXERCICE;
     const dernier = exercices[exercices.length - 1] || '';
@@ -158,8 +170,6 @@
       const choisir = { valeur: '', libelle: '— Choisir —' };
       remplirSelect($(`champ-${cle}`), [choisir].concat(versOptions(listes[cle])), cle === 'EXERCICE' ? dernier : '');
     });
-    const datalist = $('liste-qui');
-    datalist.replaceChildren(...valeursQui.map((valeur) => creer('option', { attributs: { value: valeur } })));
     afficherAvertissements(avertissements);
   }
 
@@ -204,8 +214,11 @@
   async function chargerBilan(forcer) {
     const jeton = ++etat.jetons.BILAN;
     const filtres = { exercice: $('bilan-exercice').value, dateFin: $('bilan-date-fin').value, forcer };
+    const estAnticipable = !forcer && filtres.exercice === '' && filtres.dateFin === aujourdhuiIso();
+    const anticipe = estAnticipable ? etat.bilanAnticipe : null;
+    etat.bilanAnticipe = null;
     basculerChargement($('bilan-resultats'), true);
-    const reponse = await appelerApi('apiGetBilanParCompte', filtres);
+    const reponse = await (anticipe || appelerApi('apiGetBilanParCompte', filtres));
     if (jeton !== etat.jetons.BILAN) return;
     basculerChargement($('bilan-resultats'), false);
     if (!reponse.ok) return signalerErreur(reponse);
@@ -507,7 +520,6 @@
       if (champ && !estFacultatif) champ.required = true;
       if (champ && saisie.LONGUEUR_MAX[cle]) champ.maxLength = saisie.LONGUEUR_MAX[cle];
     });
-    document.querySelector('[data-libelle-case="RAPPROCHE"]').textContent = colonnes.RAPPROCHE;
   }
 
   /**
@@ -523,7 +535,6 @@
     };
     Object.keys(parDefaut).filter((cle) => !conserves.includes(cle))
       .forEach((cle) => { $(`champ-${cle}`).value = parDefaut[cle]; });
-    $('champ-RAPPROCHE').checked = saisie.RAPPROCHE_PAR_DEFAUT;
     afficherErreursFormulaire({});
   }
 
@@ -531,7 +542,6 @@
   function lireSaisie() {
     const saisie = {};
     CHAMPS_FORMULAIRE.forEach((cle) => { saisie[cle] = $(`champ-${cle}`).value; });
-    saisie.RAPPROCHE = $('champ-RAPPROCHE').checked;
     return saisie;
   }
 
@@ -618,7 +628,7 @@
     basculerEnvoi(true);
     const reponse = await appelerApi('apiAjouterOperation', saisie);
     basculerEnvoi(false);
-    if (reponse.ok) return confirmerAjout(reponse.data, saisie);
+    if (reponse.ok) return confirmerAjout(reponse.data);
     if (reponse.erreurs) afficherErreursFormulaire(reponse.erreurs);
     signalerErreur(reponse);
   }
@@ -637,24 +647,13 @@
    * Après un ajout réussi : notification, formulaire prêt pour la saisie
    * suivante, bilans à recharger.
    * @param {{ligne: number, message: string}} resultat Réponse du serveur.
-   * @param {Object} saisie Saisie enregistrée.
    */
-  function confirmerAjout(resultat, saisie) {
+  function confirmerAjout(resultat) {
     afficherToast(`✓ ${resultat.message}`, 'succes');
     reinitialiserFormulaire(etat.contexte.reglages.saisie.CHAMPS_CONSERVES_APRES_AJOUT);
     etat.perimes = { BILAN: true, SYNTHESE: true };
-    ajouterSuggestionQui(saisie.QUI.trim());
+    etat.bilanAnticipe = null;
     $('champ-QUI').focus();
-  }
-
-  /**
-   * Ajoute une valeur aux suggestions du champ Qui si elle est nouvelle.
-   * @param {string} valeur Valeur saisie.
-   */
-  function ajouterSuggestionQui(valeur) {
-    const datalist = $('liste-qui');
-    const existe = Array.from(datalist.options).some((option) => option.value === valeur);
-    if (valeur && !existe) datalist.appendChild(creer('option', { attributs: { value: valeur } }));
   }
 
   /**

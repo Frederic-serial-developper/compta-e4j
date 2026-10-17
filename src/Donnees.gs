@@ -4,7 +4,7 @@
  *  Rôle : seul fichier qui lit et écrit le classeur. Repère les colonnes par
  *         leur en-tête, lit les opérations et les listes de choix, ajoute une
  *         ligne, gère le cache et le Journal.
- *  Fonctions principales : ouvrirClasseur_, lireOperations_,
+ *  Fonctions principales : ouvrirClasseur_, lireDonnees_, lireOperations_,
  *         lireListesDeChoix_, lireValeursDistinctes_,
  *         listerColonnesManquantes_, ajouterLigneOperation_, lireAvecCache_,
  *         invaliderCache_, ecrireJournal_.
@@ -16,6 +16,40 @@ let classeurMemorise_ = null;
 
 /** Contenu brut de la feuille Opérations, mémorisé le temps d'une exécution. */
 let feuilleOperationsMemorisee_ = null;
+
+/** Données lues (lireDonnees_), mémorisées le temps d'une exécution. */
+let donneesMemorisees_ = null;
+
+/** Version du cache, mémorisée le temps d'une exécution. */
+let versionCacheMemorisee_ = null;
+
+/**
+ * Taille (en caractères) des morceaux d'une valeur volumineuse en cache :
+ * 25 000 caractères de 3 octets au plus restent sous la limite de 100 Ko par valeur.
+ */
+const TAILLE_MORCEAU_CACHE_ = 25000;
+
+/* === Données partagées par les api* ===================================== */
+
+/**
+ * Opérations et listes de choix, mises en cache : un
+ * changement de filtre ou d'onglet ne relit pas le classeur.
+ * @param {boolean} [forcer] Vrai pour relire le Sheet même si le cache est valide.
+ * @return {{operations: Operation[], lignesIgnorees: number[],
+ *     listes: Object<string, {valeurs: string[], estParametree: boolean}>}}
+ * @throws {Error} Si la feuille ou une colonne déclarée est introuvable.
+ */
+function lireDonnees_(forcer) {
+  if (donneesMemorisees_ && !forcer) return donneesMemorisees_;
+  const cle = `${lireVersionCache_()}|donnees`;
+  let donnees = forcer ? null : lireCacheVolumineux_(cle);
+  if (!donnees) {
+    donnees = Object.assign(lireOperations_(), { listes: lireListesDeChoix_() });
+    ecrireCacheVolumineux_(cle, donnees);
+  }
+  donneesMemorisees_ = donnees;
+  return donnees;
+}
 
 /* === Lecture des opérations ============================================= */
 
@@ -50,13 +84,10 @@ function lireOperations_() {
 function convertirLigneEnOperation_(valeurs, index, numeroLigne) {
   const montant = valeurs[index.COMBIEN];
   if (typeof montant !== 'number' || !isFinite(montant)) return null;
-  const quand = valeurs[index.QUAND];
-  const dateIso = celluleVersDateIso_(quand);
   return {
     ligne: numeroLigne,
     compte: texte_(valeurs[index.COMPTE]),
-    dateIso,
-    dateAffichee: dateIso ? formaterDate_(quand) : '',
+    dateIso: celluleVersDateIso_(valeurs[index.QUAND]),
     qui: texte_(valeurs[index.QUI]),
     quoi: texte_(valeurs[index.QUOI]),
     moyen: texte_(valeurs[index.MOYEN]),
@@ -94,15 +125,16 @@ function lireValeursDistinctes_(cle) {
 /**
  * Lit les listes de choix paramétrées dans la validation de données des
  * colonnes (ordre conservé). À défaut, reprend les valeurs déjà saisies.
+ * Les règles de la première ligne de données sont lues en un seul appel.
  * @return {Object<string, {valeurs: string[], estParametree: boolean}>}
  *     Une entrée par clé de CONFIG.SAISIE.CHAMPS_A_LISTE.
  */
 function lireListesDeChoix_() {
-  const { feuille, index, premiereLigne } = lireFeuilleOperations_();
+  const { feuille, index, largeur, premiereLigne } = lireFeuilleOperations_();
+  const regles = feuille.getRange(premiereLigne, 1, 1, Math.max(largeur, 1)).getDataValidations()[0];
   const listes = {};
   CONFIG.SAISIE.CHAMPS_A_LISTE.forEach((cle) => {
-    const regle = feuille.getRange(premiereLigne, index[cle] + 1).getDataValidation();
-    const valeurs = lireValeursDeValidation_(regle);
+    const valeurs = lireValeursDeValidation_(regles[index[cle]]);
     listes[cle] = valeurs.length > 0
       ? { valeurs, estParametree: true }
       : { valeurs: lireValeursDistinctes_(cle), estParametree: false };
@@ -331,19 +363,63 @@ function lireAvecCache_(cle, forcer, calculer) {
 }
 
 /**
- * Rend obsolètes toutes les entrées du cache (après un ajout d'opération).
+ * Met en cache une valeur trop volumineuse pour une seule entrée (100 Ko),
+ * découpée en morceaux. Un échec n'interrompt pas le traitement.
+ * @param {string} cle Clé lisible.
+ * @param {Object} valeur Valeur sérialisable.
  */
-function invaliderCache_() {
-  PropertiesService.getScriptProperties()
-    .setProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE, String(Date.now()));
+function ecrireCacheVolumineux_(cle, valeur) {
+  const texte = JSON.stringify(valeur);
+  const prefixe = hacher_(cle);
+  const nombre = Math.max(Math.ceil(texte.length / TAILLE_MORCEAU_CACHE_), 1);
+  const morceaux = { [prefixe]: String(nombre) };
+  for (let i = 0; i < nombre; i += 1) {
+    morceaux[`${prefixe}|${i}`] = texte.slice(i * TAILLE_MORCEAU_CACHE_, (i + 1) * TAILLE_MORCEAU_CACHE_);
+  }
+  try {
+    CacheService.getScriptCache().putAll(morceaux, CONFIG.TECHNIQUE.CACHE_DUREE_SECONDES);
+  } catch (erreur) {
+    console.warn(`Mise en cache impossible (${cle}) : ${erreur.message}`);
+  }
 }
 
 /**
- * Version courante du cache.
+ * Relit une valeur écrite par ecrireCacheVolumineux_.
+ * @param {string} cle Clé lisible.
+ * @return {?Object} Valeur, ou null si absente ou incomplète (morceau expiré).
+ */
+function lireCacheVolumineux_(cle) {
+  const cache = CacheService.getScriptCache();
+  const prefixe = hacher_(cle);
+  const nombre = Number(cache.get(prefixe));
+  if (!nombre) return null;
+  const cles = Array.from({ length: nombre }, (_, i) => `${prefixe}|${i}`);
+  const morceaux = cache.getAll(cles);
+  if (cles.some((morceau) => typeof morceaux[morceau] !== 'string')) return null;
+  return JSON.parse(cles.map((morceau) => morceaux[morceau]).join(''));
+}
+
+/**
+ * Rend obsolètes toutes les entrées du cache (après un ajout d'opération
+ * ou une actualisation demandée).
+ */
+function invaliderCache_() {
+  versionCacheMemorisee_ = String(Date.now());
+  donneesMemorisees_ = null;
+  PropertiesService.getScriptProperties()
+    .setProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE, versionCacheMemorisee_);
+}
+
+/**
+ * Version courante du cache (lue une fois par exécution).
  * @return {string} Version.
  */
 function lireVersionCache_() {
-  return PropertiesService.getScriptProperties().getProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE) || '0';
+  if (versionCacheMemorisee_ === null) {
+    versionCacheMemorisee_ = PropertiesService.getScriptProperties()
+      .getProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE) || '0';
+  }
+  return versionCacheMemorisee_;
 }
 
 /**

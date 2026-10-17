@@ -55,7 +55,7 @@ function verifierEgal_(obtenu, attendu, libelle) {
  */
 function operationTest_(valeurs) {
   return Object.assign({
-    ligne: 2, compte: 'Banque', dateIso: '2026-01-15', dateAffichee: '15/01/2026', qui: 'Membre',
+    ligne: 2, compte: 'Banque', dateIso: '2026-01-15', qui: 'Membre',
     quoi: 'Cotisation', moyen: 'Virement', centimes: 1000, exercice: '2026', estRapproche: true,
     categorie: 'Cotisations', commentaire: ''
   }, valeurs);
@@ -90,7 +90,7 @@ function listesTest_() {
 function saisieTest_(valeurs) {
   return Object.assign({
     COMPTE: 'Banque', QUAND: '2026-10-17', QUI: 'Fournisseur', QUOI: 'Achat de jeux', MOYEN: 'Chèque',
-    COMBIEN: '-12,50', EXERCICE: '2026', RAPPROCHE: false, CATEGORIE: 'Achats jeux',
+    COMBIEN: '-12,50', EXERCICE: '2026', CATEGORIE: 'Achats jeux',
     COMMENTAIRE: ''
   }, valeurs || {});
 }
@@ -133,6 +133,7 @@ function testerDetailNonRapprochees_() {
   const detail = listerNonRapprochees_(jeuOperations_(), 'Banque', { exercice: '', dateFin: '' });
   verifierEgal_(detail.map((operation) => operation.ligne), [6, 3], 'Non rapprochées triées par date');
   verifierEgal_(detail[0].montant, -19.99, 'Montant en euros');
+  verifierEgal_(detail[0].date, '10/01/2026', 'Date au format d\'affichage');
 }
 
 function testerLignesInvalidesIgnorees_() {
@@ -211,8 +212,8 @@ function testerChampsObligatoires_() {
   const vide = validerOperation_(saisieTest_({ COMPTE: ' ', QUI: '', QUOI: '  ', COMBIEN: '', QUAND: '' }),
     listesTest_(), '2026-10-17');
   verifierEgal_(Object.keys(vide.erreurs).sort(), ['COMBIEN', 'COMPTE', 'QUAND', 'QUI', 'QUOI'], 'Champs vides signalés');
-  verifierEgal_(validerOperation_(saisieTest_({ RAPPROCHE: null }), listesTest_(), '2026-10-17').operation.RAPPROCHE,
-    false, 'Saisie Rapproché null = FAUX');
+  verifierEgal_(validerOperation_(saisieTest_({ RAPPROCHE: true }), listesTest_(), '2026-10-17').operation.RAPPROCHE,
+    false, 'Nouvelle opération toujours non rapprochée');
   verifierEgal_(vide.operation, null, 'Aucune opération si invalide');
   verifierEgal_(validerOperation_(saisieTest_({ COMMENTAIRE: '' }), listesTest_(), '2026-10-17').estValide, true,
     'Commentaire facultatif');

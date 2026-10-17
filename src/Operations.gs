@@ -24,7 +24,7 @@ function validerOperation_(saisie, listes, aujourdhui) {
   validerChampsTexte_(saisie, erreurs, operation);
   validerDate_(saisie.QUAND, aujourdhui, erreurs, operation);
   validerMontant_(saisie, erreurs, operation);
-  operation.RAPPROCHE = saisie.RAPPROCHE === true;
+  operation.RAPPROCHE = false; // Une nouvelle opération n'est jamais rapprochée : le rapprochement se fait dans le Sheet
   const estValide = Object.keys(erreurs).length === 0;
   return { estValide, erreurs, operation: estValide ? operation : null };
 }

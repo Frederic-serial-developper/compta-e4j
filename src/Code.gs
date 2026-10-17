@@ -16,7 +16,7 @@ const CONFIG = deepFreeze_({
 
   /* --- 2. Fichier et feuilles ------------------------------------------- */
   FICHIER: {
-    SPREADSHEET_ID: '1brIcJM7JChCjKEZyi5Fe83pAwsRigaOeX2mKYDW2cZI', // ID du Google Sheet (partie de l'URL entre /d/ et /edit)
+    SPREADSHEET_ID: '1hp_474UVf-2O1nBfwCjAjV6K-zg8bD8HW9IhqancPzg', // ID du Google Sheet (partie de l'URL entre /d/ et /edit)
     FEUILLE_OPERATIONS: 'Opérations',          // Feuille des opérations
     FEUILLE_JOURNAL: 'Journal',                // Feuille de journalisation (créée automatiquement si absente)
     LIGNE_EN_TETE: 1                           // Numéro de la ligne contenant les en-têtes (les données commencent juste après)
@@ -44,7 +44,7 @@ const CONFIG = deepFreeze_({
   UTILISATEURS: [
     // email : adresse Google (majuscules indifférentes) ; nom : nom affiché ;
     // role : un des rôles de la section 5 ; actif : false = accès suspendu sans supprimer la ligne.
-    { email: 'frederic.dib@gmail.com', nom: 'Frédéric Dib', role: 'Lecteur', actif: true }
+    { email: 'frederic.dib@gmail.com', nom: 'Frédéric Dib', role: 'Trésorier', actif: true }
   ],
   COLONNES_JOURNAL: ['Horodatage', 'Email', 'Action', 'Détail'], // En-têtes écrits à la création du Journal
 
@@ -63,7 +63,6 @@ const CONFIG = deepFreeze_({
     DECIMALES_MONTANT: 2,                  // Nombre maximal de décimales d'un montant
     DATE_MIN: '2000-01-01',                // Date la plus ancienne acceptée (AAAA-MM-JJ)
     DATE_MAX_JOURS_FUTUR: 365,             // Nombre de jours acceptés après aujourd'hui
-    RAPPROCHE_PAR_DEFAUT: false,           // true = case « Rapproché » cochée par défaut
     CHAMPS_CONSERVES_APRES_AJOUT: ['COMPTE', 'MOYEN', 'EXERCICE', 'QUAND'] // Champs non vidés après un ajout (saisie en série)
   },
 
@@ -78,7 +77,7 @@ const CONFIG = deepFreeze_({
 
   /* --- 8. Technique ----------------------------------------------------- */
   TECHNIQUE: {
-    CACHE_DUREE_SECONDES: 60,              // Durée de mise en cache des calculs (max. 21600)
+    CACHE_DUREE_SECONDES: 600,             // Durée de mise en cache des données et calculs (max. 21600) ; « Actualiser » relit le Sheet
     VERROU_DELAI_MS: 10000,                // Attente maximale du verrou lors d'un ajout
     PROPRIETE_VERSION_CACHE: 'VERSION_CACHE', // Nom de la propriété de script servant à invalider le cache
     ACTIONS_JOURNAL: {                     // Codes écrits dans la colonne Action du Journal
@@ -178,12 +177,16 @@ function apiGetContexte() {
 }
 
 /**
- * Renvoie les listes de choix (Compte, Moyen, Exercice, Catégorie) et les
- * valeurs déjà saisies dans « Qui » (suggestions du formulaire).
- * @return {ReponseApi} data : { listes, valeursQui, avertissements }.
+ * Renvoie les listes de choix (Compte, Moyen, Exercice, Catégorie).
+ * @param {{forcer: boolean}} parametres forcer = vider le cache et relire le Sheet
+ *     (bouton « Actualiser ») ; les appels suivants profitent de cette relecture.
+ * @return {ReponseApi} data : { listes, avertissements }.
  */
-function apiGetListesDeChoix() {
-  return executerApi_(null, (utilisateur) => construireListesClient_(utilisateur));
+function apiGetListesDeChoix(parametres) {
+  return executerApi_(null, (utilisateur) => {
+    if (parametres && parametres.forcer) invaliderCache_();
+    return construireListesClient_(utilisateur);
+  });
 }
 
 /**
@@ -196,8 +199,8 @@ function apiGetBilanParCompte(filtres) {
   return executerApi_(null, () => {
     const { exercice, dateFin, forcer } = nettoyerFiltres_(filtres);
     return lireAvecCache_(`bilan|${exercice}|${dateFin}`, forcer, () => {
-      const { operations, lignesIgnorees } = lireOperations_();
-      const comptes = lireListesDeChoix_().COMPTE.valeurs;
+      const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
+      const comptes = listes.COMPTE.valeurs;
       const bilan = calculerSoldesParCompte_(operations, comptes, { exercice, dateFin });
       return Object.assign(bilan, completerReponseDonnees_(lignesIgnorees));
     });
@@ -213,7 +216,7 @@ function apiGetDetailNonRapprochees(filtres) {
   return executerApi_(null, () => {
     const { exercice, dateFin } = nettoyerFiltres_(filtres);
     const compte = String((filtres && filtres.compte) || '');
-    const { operations } = lireOperations_();
+    const { operations } = lireDonnees_();
     return { compte, operations: listerNonRapprochees_(operations, compte, { exercice, dateFin }) };
   });
 }
@@ -228,8 +231,7 @@ function apiGetSyntheseParCategorie(parametres) {
     const { exercice, forcer } = nettoyerFiltres_(parametres);
     const comparer = Boolean(parametres && parametres.comparer);
     return lireAvecCache_(`synthese|${exercice}|${comparer}`, forcer, () => {
-      const { operations, lignesIgnorees } = lireOperations_();
-      const listes = lireListesDeChoix_();
+      const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
       const synthese = calculerSyntheseParCategorie_(operations, listes.CATEGORIE.valeurs,
         listes.EXERCICE.valeurs, { exercice, comparer });
       return Object.assign(synthese, completerReponseDonnees_(lignesIgnorees));
@@ -246,8 +248,7 @@ function apiGetSyntheseTousExercices(parametres) {
   return executerApi_(null, () => {
     const forcer = Boolean(parametres && parametres.forcer);
     return lireAvecCache_('croisee', forcer, () => {
-      const { operations, lignesIgnorees } = lireOperations_();
-      const listes = lireListesDeChoix_();
+      const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
       const vue = calculerVueCroisee_(operations, listes.CATEGORIE.valeurs, listes.EXERCICE.valeurs);
       return Object.assign(vue, completerReponseDonnees_(lignesIgnorees));
     });
@@ -325,6 +326,7 @@ function preparerPage_() {
     titre: CONFIG.APP.TITRE,
     titreRefus: CONFIG.MESSAGES.TITRE_ACCES_REFUSE,
     messageErreur: CONFIG.MESSAGES.ERREUR_INATTENDUE,
+    ongletParDefaut: CONFIG.AFFICHAGE.ONGLET_PAR_DEFAUT,
     message: '',
     utilisateur: null,
     problemes: []
@@ -442,16 +444,15 @@ function construireReglagesClient_() {
  * Listes de choix au format attendu par le navigateur. Les avertissements
  * (liste non paramétrée) ne sont transmis qu'au trésorier.
  * @param {Utilisateur} utilisateur Utilisateur identifié.
- * @return {{listes: Object<string, string[]>, valeursQui: string[], avertissements: string[]}}
+ * @return {{listes: Object<string, string[]>, avertissements: string[]}}
  */
 function construireListesClient_(utilisateur) {
-  const listes = lireListesDeChoix_();
+  const { listes } = lireDonnees_();
   const avertissements = Object.keys(listes)
     .filter((cle) => !listes[cle].estParametree)
     .map((cle) => remplacerVariables_(CONFIG.MESSAGES.LISTE_NON_PARAMETREE, { colonne: CONFIG.COLONNES[cle] }));
   return {
     listes: valeursDesListes_(listes),
-    valeursQui: lireValeursDistinctes_('QUI'),
     avertissements: utilisateur.role === CONFIG.ROLES.TRESORIER ? avertissements : []
   };
 }

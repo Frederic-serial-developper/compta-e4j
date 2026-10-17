@@ -10,7 +10,7 @@
   <meta charset="utf-8">
   <?!= include('Styles') ?>
 </head>
-<body data-erreur-inattendue="<?= page.messageErreur ?>">
+<body data-erreur-inattendue="<?= page.messageErreur ?>" data-onglet-par-defaut="<?= page.ongletParDefaut ?>">
 <? if (!page.estAutorise) { ?>
   <main class="page">
     <section class="etat-plein" role="alert">
@@ -119,8 +119,7 @@
         </div>
         <div class="champ">
           <label class="label" for="champ-QUI" data-libelle="QUI">Qui</label>
-          <input type="text" id="champ-QUI" name="QUI" list="liste-qui" autocomplete="off" placeholder="Fournisseur, membre…" aria-describedby="erreur-QUI">
-          <datalist id="liste-qui"></datalist>
+          <input type="text" id="champ-QUI" name="QUI" autocomplete="off" placeholder="Fournisseur, membre…" aria-describedby="erreur-QUI">
           <span class="champ__erreur" id="erreur-QUI"></span>
         </div>
         <div class="champ">
@@ -143,10 +142,6 @@
           <select id="champ-EXERCICE" name="EXERCICE" aria-describedby="erreur-EXERCICE"></select>
           <span class="champ__erreur" id="erreur-EXERCICE"></span>
         </div>
-        <label class="case" for="champ-RAPPROCHE">
-          <input type="checkbox" id="champ-RAPPROCHE" name="RAPPROCHE">
-          <span data-libelle-case="RAPPROCHE">Rapproché</span>
-        </label>
         <div class="champ">
           <label class="label" for="champ-CATEGORIE" data-libelle="CATEGORIE">Catégorie Bilan Financier</label>
           <select id="champ-CATEGORIE" name="CATEGORIE" aria-describedby="erreur-CATEGORIE"></select>

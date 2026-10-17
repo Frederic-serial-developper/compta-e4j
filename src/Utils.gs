@@ -36,7 +36,6 @@
  * @property {number} ligne Numéro de ligne dans le Sheet.
  * @property {string} compte
  * @property {string} dateIso Date au format AAAA-MM-JJ ('' si absente ou invalide).
- * @property {string} dateAffichee Date au format d'affichage ('' si absente).
  * @property {string} qui
  * @property {string} quoi
  * @property {string} moyen
@@ -69,7 +68,6 @@
  * @property {string} MOYEN
  * @property {string} COMBIEN Montant saisi (virgule ou point) : positif = recette, négatif = dépense.
  * @property {string} EXERCICE
- * @property {boolean} RAPPROCHE
  * @property {string} CATEGORIE
  * @property {string} COMMENTAIRE
  */
@@ -84,7 +82,7 @@
  * @property {string} MOYEN
  * @property {number} COMBIEN Montant signé en euros.
  * @property {string} EXERCICE
- * @property {boolean} RAPPROCHE
+ * @property {boolean} RAPPROCHE Toujours faux à la création.
  * @property {string} CATEGORIE
  * @property {string} COMMENTAIRE
  */
@@ -250,14 +248,22 @@ function aujourdhuiIso_() {
   return Utilities.formatDate(new Date(), CONFIG.APP.FUSEAU_HORAIRE, 'yyyy-MM-dd');
 }
 
+/** Vrai si le fuseau du projet est celui de CONFIG, mémorisé le temps d'une exécution. */
+let estFuseauDuProjet_ = null;
+
 /**
  * Convertit une valeur de cellule en date AAAA-MM-JJ.
+ * Appelée pour chaque ligne : si le fuseau du projet est celui de CONFIG,
+ * les méthodes natives de Date évitent un appel à Utilities par ligne.
  * @param {*} valeur Valeur lue dans le Sheet.
  * @return {string} Date ISO, ou '' si la valeur n'est pas une date valide.
  */
 function celluleVersDateIso_(valeur) {
   if (!(valeur instanceof Date) || isNaN(valeur.getTime())) return '';
-  return Utilities.formatDate(valeur, CONFIG.APP.FUSEAU_HORAIRE, 'yyyy-MM-dd');
+  if (estFuseauDuProjet_ === null) estFuseauDuProjet_ = Session.getScriptTimeZone() === CONFIG.APP.FUSEAU_HORAIRE;
+  if (!estFuseauDuProjet_) return Utilities.formatDate(valeur, CONFIG.APP.FUSEAU_HORAIRE, 'yyyy-MM-dd');
+  const deuxChiffres = (nombre) => String(nombre).padStart(2, '0');
+  return `${valeur.getFullYear()}-${deuxChiffres(valeur.getMonth() + 1)}-${deuxChiffres(valeur.getDate())}`;
 }
 
 /**
