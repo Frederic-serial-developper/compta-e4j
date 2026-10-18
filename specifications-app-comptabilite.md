@@ -361,6 +361,14 @@ Tableau croisé : catégories en lignes, exercices en colonnes, soldes dans les 
 - La synthèse (§6.2), la comparaison avec l'année précédente et la vue « Tous » (§6.3, années en colonnes) fonctionnent de la même manière.
 - Les opérations sans date valide n'apparaissent dans aucune année ; dans la vue « Tous », elles sont regroupées dans une colonne « — » pour que les totaux restent complets.
 
+### 6.5 Suivi du budget prévisionnel
+
+- Onglet **« Budgets »** (tous rôles) : des enveloppes de dépenses sont définies pour certaines catégories dans `CONFIG.BUDGET.ENVELOPPES` (`{ categorie, montant }`), pour l'exercice `CONFIG.BUDGET.EXERCICE` (vide = **dernier exercice de la liste**).
+- Pour chaque enveloppe : budget, **consommé** = dépenses − recettes (remboursements) de la catégorie sur l'exercice, **reste** (négatif = dépassement), part consommée (%) en jauge, nombre d'opérations.
+- Statut : « Dans le budget », « Bientôt atteint » (part ≥ `CONFIG.BUDGET.SEUIL_ALERTE_POURCENT`) ou « Dépassé ».
+- Tuiles de total : budget, consommé, reste.
+- Une catégorie d'enveloppe absente de la liste de choix est signalée par un avertissement.
+
 ---
 
 ## 7. Fonctionnalité 3 — Ajout d'une opération
@@ -448,7 +456,7 @@ Aucune couleur ni police n'est codée en dur ailleurs. Si la charte utilise une 
 ┌──────────────────────────────────────────────────────────┐
 │ [Logo] Comptabilité <Association>   Frédéric (Trésorier) │
 ├──────────────────────────────────────────────────────────┤
-│ [ Bilan par compte ] [ Synthèse par catégorie ] [ + Ajouter ] │
+│ [ Bilan par compte ] [ Synthèse par catégorie ] [ Budgets ] [ + Ajouter ] │
 ├──────────────────────────────────────────────────────────┤
 │  Filtres                                                 │
 │  Tableau / formulaire                                    │

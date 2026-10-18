@@ -141,6 +141,29 @@
  */
 
 /**
+ * Ligne du suivi budgétaire (montants en euros).
+ * @typedef {Object} LigneBudget
+ * @property {string} categorie Catégorie de l'enveloppe ('' pour le total).
+ * @property {number} budget Montant prévu.
+ * @property {number} consomme Dépenses − recettes de la catégorie sur l'exercice.
+ * @property {number} reste Budget − consommé (négatif en cas de dépassement).
+ * @property {number} pourcentage Part consommée (peut dépasser 100).
+ * @property {number} nbOperations
+ * @property {string} statut 'OK', 'ALERTE' (seuil atteint) ou 'DEPASSE'.
+ */
+
+/**
+ * Suivi du budget prévisionnel d'un exercice.
+ * @typedef {Object} SuiviBudgets
+ * @property {string} exercice Exercice suivi.
+ * @property {LigneBudget[]} lignes Une ligne par enveloppe, dans l'ordre de CONFIG.
+ * @property {LigneBudget} totaux Ligne de total (categorie = '').
+ * @property {string[]} categoriesHorsListe Catégories du budget absentes de la liste de choix.
+ * @property {string} [miseAJour] Horodatage du calcul.
+ * @property {string} [avertissement] Lignes ignorées ou catégories inconnues, le cas échéant.
+ */
+
+/**
  * Contexte transmis au navigateur au démarrage.
  * @typedef {Object} ContexteClient
  * @property {Utilisateur} utilisateur

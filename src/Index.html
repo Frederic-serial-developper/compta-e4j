@@ -46,6 +46,7 @@
     <nav class="onglets" role="tablist" aria-label="Sections">
       <button type="button" class="onglet" role="tab" id="onglet-BILAN" data-onglet="BILAN" aria-controls="panneau-BILAN" aria-selected="false">Bilan par compte</button>
       <button type="button" class="onglet" role="tab" id="onglet-SYNTHESE" data-onglet="SYNTHESE" aria-controls="panneau-SYNTHESE" aria-selected="false">Synthèse par catégorie</button>
+      <button type="button" class="onglet" role="tab" id="onglet-BUDGET" data-onglet="BUDGET" aria-controls="panneau-BUDGET" aria-selected="false">Budgets</button>
       <button type="button" class="onglet" role="tab" id="onglet-AJOUT" data-onglet="AJOUT" aria-controls="panneau-AJOUT" aria-selected="false" hidden>+ Ajouter</button>
     </nav>
 
@@ -109,6 +110,12 @@
       </div>
       <div id="synthese-avertissement" class="bandeau" role="status" hidden></div>
       <div id="synthese-contenu" class="pile zone-chargement"></div>
+    </section>
+
+    <!-- === Suivi du budget prévisionnel ================================== -->
+    <section id="panneau-BUDGET" class="pile" role="tabpanel" aria-labelledby="onglet-BUDGET" hidden>
+      <div id="budget-avertissement" class="bandeau" role="status" hidden></div>
+      <div id="budget-contenu" class="pile zone-chargement"></div>
     </section>
 
     <!-- === Ajout d'une opération ========================================= -->

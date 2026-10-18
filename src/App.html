@@ -3,7 +3,8 @@
    *  App.html — JavaScript de l'interface
    *
    *  Rôle : navigation par onglets, appels au serveur (google.script.run),
-   *         affichage du bilan, de la synthèse et du formulaire d'ajout.
+   *         affichage du bilan, de la synthèse, du suivi budgétaire et du
+   *         formulaire d'ajout.
    *  Les libellés, formats et valeurs par défaut viennent du serveur
    *  (apiGetContexte, issus de CONFIG) ; seuls les réglages purement visuels
    *  sont déclarés ici. Aucun calcul de total n'est fait dans le navigateur.
@@ -29,8 +30,8 @@
   const etat = {
     contexte: null,
     ongletActif: null,
-    perimes: { BILAN: true, SYNTHESE: true },
-    jetons: { BILAN: 0, SYNTHESE: 0, DETAIL: 0 },
+    perimes: { BILAN: true, SYNTHESE: true, BUDGET: true },
+    jetons: { BILAN: 0, SYNTHESE: 0, BUDGET: 0, DETAIL: 0 },
     compteSelectionne: null,
     synthese: null,
     tri: { cle: 'solde', sens: -1 },
@@ -107,7 +108,7 @@
 
   /**
    * Affiche un onglet et charge ses données si elles sont périmées.
-   * @param {string} nom 'BILAN', 'SYNTHESE' ou 'AJOUT'.
+   * @param {string} nom 'BILAN', 'SYNTHESE', 'BUDGET' ou 'AJOUT'.
    */
   function afficherOnglet(nom) {
     if (nom === 'AJOUT' && !etat.contexte.estTresorier) return;
@@ -124,13 +125,14 @@
 
   /**
    * Charge les données d'un onglet de consultation.
-   * @param {string} nom 'BILAN' ou 'SYNTHESE'.
+   * @param {string} nom 'BILAN', 'SYNTHESE' ou 'BUDGET'.
    * @param {boolean} forcer Vrai pour ignorer le cache du serveur.
    * @return {Promise<void>}
    */
   function chargerOnglet(nom, forcer) {
     if (nom === 'BILAN') return chargerBilan(forcer);
     if (nom === 'SYNTHESE') return chargerSynthese(forcer);
+    if (nom === 'BUDGET') return chargerBudgets(forcer);
     return Promise.resolve();
   }
 
@@ -152,7 +154,7 @@
   async function actualiser() {
     const bouton = $('bouton-actualiser');
     bouton.classList.add('en-cours');
-    etat.perimes = { BILAN: true, SYNTHESE: true };
+    etat.perimes = { BILAN: true, SYNTHESE: true, BUDGET: true };
     etat.bilanAnticipe = null;
     const reponse = await appelerApi('apiGetListesDeChoix', { forcer: true });
     if (reponse.ok) remplirListes(reponse.data);
@@ -522,6 +524,75 @@
       creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]));
   }
 
+  /* === Suivi du budget prévisionnel ==================================== */
+
+  /**
+   * Demande le suivi des enveloppes budgétaires au serveur.
+   * @param {boolean} forcer Vrai pour ignorer le cache.
+   */
+  async function chargerBudgets(forcer) {
+    const jeton = ++etat.jetons.BUDGET;
+    basculerChargement($('budget-contenu'), true);
+    const reponse = await appelerApi('apiGetSuiviBudgets', { forcer });
+    if (jeton !== etat.jetons.BUDGET) return;
+    basculerChargement($('budget-contenu'), false);
+    if (!reponse.ok) return signalerErreur(reponse);
+    etat.perimes.BUDGET = false;
+    afficherBandeau($('budget-avertissement'), reponse.data.avertissement);
+    afficherMiseAJour(reponse.data.miseAJour);
+    afficherBudgets(reponse.data);
+  }
+
+  /**
+   * Affiche les tuiles de total puis une jauge par enveloppe.
+   * @param {Object} suivi Suivi renvoyé par apiGetSuiviBudgets.
+   */
+  function afficherBudgets(suivi) {
+    if (suivi.lignes.length === 0) {
+      return $('budget-contenu').replaceChildren(
+        creer('p', { classe: 'carte vide', texte: 'Aucune enveloppe budgétaire n\'est définie.' }));
+    }
+    const titre = creer('p', { classe: 'label', texte: `Budget prévisionnel — exercice ${suivi.exercice || '—'}` });
+    const tuiles = creer('div', { classe: 'tuiles' }, [
+      creerTuile('Budget', suivi.totaux.budget),
+      creerTuile('Consommé', -suivi.totaux.consomme),
+      creerTuile('Reste', suivi.totaux.reste, true)]);
+    $('budget-contenu').replaceChildren(titre, tuiles, ...suivi.lignes.map(creerCarteEnveloppe));
+  }
+
+  /**
+   * Carte d'une enveloppe : jauge de consommation, consommé et reste.
+   * @param {Object} ligne Ligne du suivi budgétaire.
+   * @return {HTMLElement} Carte.
+   */
+  function creerCarteEnveloppe(ligne) {
+    const locale = etat.contexte.reglages.locale;
+    const pourcentage = `${ligne.pourcentage.toLocaleString(locale)} %`;
+    const badges = {
+      OK: { classe: 'badge badge--succes', texte: 'Dans le budget' },
+      ALERTE: { classe: 'badge', texte: 'Bientôt atteint' },
+      DEPASSE: { classe: 'badge badge--danger', texte: 'Dépassé' }
+    };
+    const jauge = creer('div', { classe: 'jauge', attributs: {
+      role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
+      'aria-valuenow': String(Math.min(Math.max(ligne.pourcentage, 0), 100)),
+      'aria-label': `${ligne.categorie} : ${pourcentage} du budget consommé` } }, [
+      creer('div', { classe: `jauge__remplissage jauge__remplissage--${ligne.statut.toLowerCase()}` })]);
+    jauge.firstChild.style.width = `${Math.min(Math.max(ligne.pourcentage, 0), 100)}%`;
+    const reste = ligne.reste >= 0
+      ? `Reste ${formaterMontant(ligne.reste)}`
+      : `Dépassement de ${formaterMontant(-ligne.reste)}`;
+    return creer('div', { classe: 'carte enveloppe' }, [
+      creer('div', { classe: 'enveloppe__haut' }, [
+        creer('h2', { classe: 'carte__titre', texte: ligne.categorie }),
+        creer('span', { classe: badges[ligne.statut].classe, texte: badges[ligne.statut].texte })]),
+      jauge,
+      creer('div', { classe: 'enveloppe__chiffres' }, [
+        creer('span', { classe: 'montant', texte: `${formaterMontant(ligne.consomme)} / ${formaterMontant(ligne.budget)} (${pourcentage})` }),
+        creer('span', { classe: `montant ${classeMontant(ligne.reste)}`, texte: reste })]),
+      creer('div', { classe: 'ligne-liste__meta', texte: `${ligne.nbOperations} opération(s)` })]);
+  }
+
   /* === Formulaire d'ajout ============================================== */
 
   /** Prépare le formulaire (valeurs par défaut, état du bouton) à l'ouverture de l'onglet. */
@@ -700,7 +771,7 @@
   function confirmerAjout(resultat) {
     afficherToast(`✓ ${resultat.message}`, 'succes');
     reinitialiserFormulaire(etat.contexte.reglages.saisie.CHAMPS_CONSERVES_APRES_AJOUT);
-    etat.perimes = { BILAN: true, SYNTHESE: true };
+    etat.perimes = { BILAN: true, SYNTHESE: true, BUDGET: true };
     etat.bilanAnticipe = null;
     $('champ-QUI').focus();
   }

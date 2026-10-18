@@ -411,6 +411,24 @@
   .legende .recette::before { background: var(--success); }
   .legende .depense::before { background: var(--danger); }
 
+  /* === Enveloppes budgétaires ============================================ */
+  .enveloppe { display: flex; flex-direction: column; gap: var(--gap-sm); }
+  .enveloppe .carte__titre { margin: 0; }
+  .enveloppe__haut,
+  .enveloppe__chiffres {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--gap-sm);
+  }
+  .enveloppe__chiffres { font-size: var(--taille-sous-titre); }
+  .jauge { height: 10px; border-radius: var(--radius-pilule); background: var(--surface-2); overflow: hidden; }
+  .jauge__remplissage { height: 100%; border-radius: var(--radius-pilule); transition: width var(--transition); }
+  .jauge__remplissage--ok { background: var(--success); }
+  .jauge__remplissage--alerte { background: var(--warning); }
+  .jauge__remplissage--depasse { background: var(--danger); }
+
   /* === Pied de page ===================================================== */
   .pied {
     display: flex;

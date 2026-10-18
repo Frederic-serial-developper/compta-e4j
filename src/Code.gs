@@ -43,19 +43,45 @@ const CONFIG = deepFreeze_({
   //  (partage Lecteur pour le rôle Lecteur, Éditeur pour le rôle Trésorier).
   UTILISATEURS: [
     // email : adresse Google (majuscules indifférentes) ; nom : nom affiché ;
-    // role : un des rôles de la section 5 ; actif : false = accès suspendu sans supprimer la ligne.
-    { email: 'frederic.dib@gmail.com', nom: 'Frédéric Dib', role: 'Trésorier', actif: true }
+    // role : un des rôles de la section 6 ; actif : false = accès suspendu sans supprimer la ligne.
+    { email: 'frederic.dib@gmail.com', nom: 'Fred', role: 'Trésorier', actif: true },
+    { email: 'cecile.dubau@gmail.com', nom: 'Cécile', role: 'Lecteur', actif: true },
+    { email: 'clelie.dogue@gmail.com', nom: 'Clélie', role: 'Lecteur', actif: true },
+    { email: 'damien.d.kohler@wanadoo.fr', nom: 'Damien', role: 'Lecteur', actif: true },
+    { email: 'genin.etienne@free.fr', nom: 'Etienne', role: 'Lecteur', actif: true },
+    { email: 'benj.lehrer@gmail.com', nom: 'Ben', role: 'Lecteur', actif: true },
+    { email: 'jblusignan@gmail.com', nom: 'Jibé', role: 'Lecteur', actif: true },
+    { email: 'mikael.dumont@gmail.com', nom: 'Mikael', role: 'Lecteur', actif: true },
+    { email: 'yannickchabas@gmail.com', nom: 'Yannick', role: 'Lecteur', actif: true }
   ],
   COLONNES_JOURNAL: ['Horodatage', 'Email', 'Action', 'Détail'], // En-têtes écrits à la création du Journal
 
-  /* --- 5. Rôles --------------------------------------------------------- */
+  /* --- 5. Budget prévisionnel ------------------------------------------- */
+  //  Enveloppes de dépenses suivies dans l'onglet « Budgets ». Consommé d'une
+  //  enveloppe = dépenses − recettes (remboursements) de la catégorie sur l'exercice.
+  BUDGET: {
+    EXERCICE: '',                          // Exercice suivi ; vide = dernier exercice de la liste de choix
+    SEUIL_ALERTE_POURCENT: 80,             // Part consommée (%) à partir de laquelle l'enveloppe est signalée
+    ENVELOPPES: [
+      // categorie : valeur exacte de la liste « Catégorie Bilan Financier » ; montant : budget en euros (> 0).
+      { categorie: 'Assurance', montant: 200 },
+      { categorie: 'Achat Jeux', montant: 1000 },
+      { categorie: 'Convivialité', montant: 1000 },
+      { categorie: 'Fournitures', montant: 500 },
+      { categorie: 'Frais bancaires', montant: 50 },
+      { categorie: 'Festival Dépense', montant: 2000 },
+      { categorie: 'Divers', montant: 200 }
+    ]
+  },
+
+  /* --- 6. Rôles --------------------------------------------------------- */
   //  Valeurs à utiliser dans le champ role de UTILISATEURS.
   ROLES: {
     LECTEUR: 'Lecteur',        // Consultation seule
     TRESORIER: 'Trésorier'     // Consultation + ajout d'opérations
   },
 
-  /* --- 6. Règles de saisie --------------------------------------------- */
+  /* --- 7. Règles de saisie --------------------------------------------- */
   SAISIE: {
     CHAMPS_A_LISTE: ['COMPTE', 'MOYEN', 'EXERCICE', 'CATEGORIE'], // Clés de COLONNES dont les valeurs viennent d'une liste de choix du Sheet
     CHAMPS_FACULTATIFS: ['COMMENTAIRE'],   // Clés de COLONNES non obligatoires
@@ -66,16 +92,16 @@ const CONFIG = deepFreeze_({
     CHAMPS_CONSERVES_APRES_AJOUT: ['COMPTE', 'MOYEN', 'EXERCICE', 'QUAND'] // Champs non vidés après un ajout (saisie en série)
   },
 
-  /* --- 7. Affichage ----------------------------------------------------- */
+  /* --- 8. Affichage ----------------------------------------------------- */
   AFFICHAGE: {
     LIBELLE_SANS_CATEGORIE: 'Non catégorisé', // Catégorie affichée pour une opération sans catégorie
     LIBELLE_TOUS_EXERCICES: 'Tous',        // Libellé du choix « tous les exercices » dans les filtres
     FORMAT_DATE: 'dd/MM/yyyy',             // Format des dates affichées
     FORMAT_DATE_HEURE: 'dd/MM/yyyy HH:mm', // Format de l'heure de dernière mise à jour
-    ONGLET_PAR_DEFAUT: 'BILAN'             // 'BILAN', 'SYNTHESE' ou 'AJOUT' : onglet ouvert au démarrage
+    ONGLET_PAR_DEFAUT: 'BILAN'             // 'BILAN', 'SYNTHESE', 'BUDGET' ou 'AJOUT' : onglet ouvert au démarrage
   },
 
-  /* --- 8. Technique ----------------------------------------------------- */
+  /* --- 9. Technique ----------------------------------------------------- */
   TECHNIQUE: {
     CACHE_DUREE_SECONDES: 600,             // Durée de mise en cache des données et calculs (max. 21600) ; « Actualiser » relit le Sheet
     VERROU_DELAI_MS: 10000,                // Attente maximale du verrou lors d'un ajout
@@ -86,7 +112,7 @@ const CONFIG = deepFreeze_({
     }
   },
 
-  /* --- 9. Messages affichés à l'utilisateur ----------------------------- */
+  /* --- 10. Messages affichés à l'utilisateur ---------------------------- */
   //  Les éléments entre accolades ({email}, {ligne}…) sont remplacés automatiquement.
   MESSAGES: {
     TITRE_ACCES_REFUSE: 'Accès non autorisé',
@@ -107,6 +133,7 @@ const CONFIG = deepFreeze_({
     PARAMETRE_INVALIDE: 'Paramètre de configuration invalide : {parametre}.',
     LISTE_NON_PARAMETREE: 'La colonne {colonne} n\'a pas de liste de choix paramétrée.',
     LIGNES_IGNOREES: '{nombre} ligne(s) ignorée(s) : montant invalide, lignes {lignes}.',
+    BUDGET_CATEGORIE_INCONNUE: 'Catégorie(s) du budget absente(s) de la liste de choix : {categories}.',
     ERREUR_INATTENDUE: 'Une erreur est survenue. Réessayez ou contactez le trésorier.'
   }
 });
@@ -135,7 +162,7 @@ function deepFreeze_(objet) {
  *  Fonctions principales : doGet, include, apiGetContexte, apiGetListesDeChoix,
  *         apiGetBilanParCompte, apiGetDetailNonRapprochees,
  *         apiGetSyntheseParCategorie, apiGetSyntheseTousExercices,
- *         apiAjouterOperation.
+ *         apiGetSuiviBudgets, apiAjouterOperation.
  *  Dépendances : Acces.gs, Operations.gs, Bilan.gs, Donnees.gs, Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -263,6 +290,30 @@ function apiGetSyntheseTousExercices(parametres) {
 }
 
 /**
+ * Suivi des enveloppes du budget prévisionnel (CONFIG.BUDGET) sur l'exercice suivi.
+ * @param {{forcer: boolean}} parametres forcer = ignorer le cache.
+ * @return {ReponseApi} data : {@link SuiviBudgets}.
+ */
+function apiGetSuiviBudgets(parametres) {
+  return executerApi_(null, () => {
+    const forcer = Boolean(parametres && parametres.forcer);
+    // CONFIG.BUDGET fait partie de la clé : un budget modifié et redéployé est pris en compte aussitôt.
+    return lireAvecCache_(`budgets|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
+      const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
+      const suivi = calculerSuiviBudgets_(operations, CONFIG.BUDGET.ENVELOPPES, listes.EXERCICE.valeurs,
+        listes.CATEGORIE.valeurs, { exercice: CONFIG.BUDGET.EXERCICE, seuilAlerte: CONFIG.BUDGET.SEUIL_ALERTE_POURCENT });
+      const complements = completerReponseDonnees_(lignesIgnorees);
+      if (suivi.categoriesHorsListe.length > 0) {
+        const message = remplacerVariables_(CONFIG.MESSAGES.BUDGET_CATEGORIE_INCONNUE,
+          { categories: suivi.categoriesHorsListe.join(', ') });
+        complements.avertissement = [complements.avertissement, message].filter(Boolean).join(' ');
+      }
+      return Object.assign(suivi, complements);
+    });
+  });
+}
+
+/**
  * Ajoute une opération dans la feuille Opérations (rôle Trésorier).
  * Revalide entièrement la saisie : le contrôle côté navigateur n'est qu'un confort.
  * @param {SaisieOperation} saisie Données du formulaire.
@@ -376,14 +427,21 @@ function verifierConfiguration_() {
  * @return {string[]} Messages d'erreur.
  */
 function verifierParametres_() {
-  const { SAISIE, AFFICHAGE } = CONFIG;
+  const { SAISIE, AFFICHAGE, BUDGET } = CONFIG;
   const clesColonnes = Object.keys(CONFIG.COLONNES);
   const emails = CONFIG.UTILISATEURS.map((personne) => texte_(personne.email).toLowerCase());
+  const categoriesBudget = BUDGET.ENVELOPPES.map((enveloppe) => texte_(enveloppe.categorie));
   const controles = {
     'UTILISATEURS (email)': emails.every((email) => /^[^\s@]+@[^\s@]+$/.test(email))
       && new Set(emails).size === emails.length,
     'UTILISATEURS (role)': CONFIG.UTILISATEURS.every((personne) => normaliserRole_(personne.role) !== null),
-    'AFFICHAGE.ONGLET_PAR_DEFAUT': ['BILAN', 'SYNTHESE', 'AJOUT'].includes(AFFICHAGE.ONGLET_PAR_DEFAUT),
+    'BUDGET.ENVELOPPES (categorie)': categoriesBudget.every((categorie) => categorie !== '')
+      && new Set(categoriesBudget).size === categoriesBudget.length,
+    'BUDGET.ENVELOPPES (montant)': BUDGET.ENVELOPPES.every((enveloppe) =>
+      typeof enveloppe.montant === 'number' && enveloppe.montant > 0),
+    'BUDGET.SEUIL_ALERTE_POURCENT': typeof BUDGET.SEUIL_ALERTE_POURCENT === 'number'
+      && BUDGET.SEUIL_ALERTE_POURCENT >= 0 && BUDGET.SEUIL_ALERTE_POURCENT <= 100,
+    'AFFICHAGE.ONGLET_PAR_DEFAUT': ['BILAN', 'SYNTHESE', 'BUDGET', 'AJOUT'].includes(AFFICHAGE.ONGLET_PAR_DEFAUT),
     'SAISIE.CHAMPS_A_LISTE': SAISIE.CHAMPS_A_LISTE.every((cle) => clesColonnes.includes(cle)),
     'SAISIE.CHAMPS_FACULTATIFS': SAISIE.CHAMPS_FACULTATIFS.every((cle) => clesColonnes.includes(cle)),
     'SAISIE.CHAMPS_CONSERVES_APRES_AJOUT':

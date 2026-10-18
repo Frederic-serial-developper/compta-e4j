@@ -4,11 +4,12 @@
  *  Rôle : calculs purs à partir d'opérations déjà lues (aucun appel à
  *         SpreadsheetApp) : soldes par compte, détail des non rapprochées,
  *         synthèse par catégorie, vue croisée, par exercice ou par
- *         année civile (année de la date de l'opération).
- *         Les calculs se font en centimes entiers ; les résultats sont
- *         convertis en euros à la fin.
+ *         année civile (année de la date de l'opération), suivi du budget
+ *         prévisionnel. Les calculs se font en centimes entiers ; les
+ *         résultats sont convertis en euros à la fin.
  *  Fonctions principales : calculerSoldesParCompte_, listerNonRapprochees_,
- *         calculerSyntheseParCategorie_, calculerVueCroisee_, listerAnnees_.
+ *         calculerSyntheseParCategorie_, calculerVueCroisee_,
+ *         calculerSuiviBudgets_, listerAnnees_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -125,6 +126,68 @@ function calculerVueCroisee_(operations, categories, periodes, regroupement = RE
       soldes: parPeriode.map((cumuls) => versEuros_(soldeDe_(cumuls.get(categorie))))
     })),
     totaux: parPeriode.map((cumuls) => versEuros_(totaliserCategories_(cumuls).solde))
+  };
+}
+
+/* === Suivi du budget prévisionnel ======================================== */
+
+/** Statuts d'une enveloppe budgétaire. */
+const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DEPASSE' });
+
+/**
+ * Consommation des enveloppes budgétaires sur un exercice. Le consommé d'une
+ * enveloppe est le montant net dépensé dans sa catégorie (dépenses − recettes).
+ * @param {Operation[]} operations Opérations lues.
+ * @param {{categorie: string, montant: number}[]} enveloppes Budgets en euros (CONFIG.BUDGET.ENVELOPPES).
+ * @param {string[]} exercices Exercices de la liste de choix, dans l'ordre.
+ * @param {string[]} categories Catégories de la liste de choix.
+ * @param {{exercice: string, seuilAlerte: number}} options exercice vide = dernier
+ *     de la liste ; seuilAlerte = part consommée (%) déclenchant l'alerte.
+ * @return {SuiviBudgets} Suivi en euros.
+ */
+function calculerSuiviBudgets_(operations, enveloppes, exercices, categories, options) {
+  const exercice = options.exercice || exercices[exercices.length - 1] || '';
+  const cumuls = cumulerParCategorie_(filtrerParPeriode_(operations, REGROUPEMENTS_.EXERCICE, exercice), categories);
+  const totaux = { budget: 0, consomme: 0 };
+  const lignes = enveloppes.map(({ categorie, montant }) => {
+    const budget = versCentimes_(montant);
+    const consomme = -soldeDe_(cumuls.get(categorie));
+    totaux.budget += budget;
+    totaux.consomme += consomme;
+    return construireLigneBudget_(categorie, budget, consomme, cumuls.has(categorie) ? cumuls.get(categorie).nb : 0,
+      options.seuilAlerte);
+  });
+  return {
+    exercice,
+    lignes,
+    totaux: construireLigneBudget_('', totaux.budget, totaux.consomme,
+      lignes.reduce((somme, ligne) => somme + ligne.nbOperations, 0), options.seuilAlerte),
+    categoriesHorsListe: enveloppes.map((enveloppe) => enveloppe.categorie)
+      .filter((categorie) => !categories.includes(categorie))
+  };
+}
+
+/**
+ * @param {string} categorie Catégorie de l'enveloppe ('' pour le total).
+ * @param {number} budget Budget en centimes.
+ * @param {number} consomme Montant net dépensé en centimes.
+ * @param {number} nbOperations Nombre d'opérations de la catégorie.
+ * @param {number} seuilAlerte Seuil d'alerte en %.
+ * @return {LigneBudget} Ligne en euros.
+ */
+function construireLigneBudget_(categorie, budget, consomme, nbOperations, seuilAlerte) {
+  const pourcentage = budget === 0 ? 0 : Math.round((consomme / budget) * 1000) / 10;
+  let statut = STATUTS_BUDGET_.OK;
+  if (consomme > budget) statut = STATUTS_BUDGET_.DEPASSE;
+  else if (pourcentage >= seuilAlerte) statut = STATUTS_BUDGET_.ALERTE;
+  return {
+    categorie,
+    budget: versEuros_(budget),
+    consomme: versEuros_(consomme),
+    reste: versEuros_(budget - consomme),
+    pourcentage,
+    nbOperations,
+    statut
   };
 }
 

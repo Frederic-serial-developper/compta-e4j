@@ -18,7 +18,7 @@ function lancerTests() {
     testerComptesSansOperation_, testerDetailNonRapprochees_, testerLignesInvalidesIgnorees_,
     testerSyntheseCategorieVide_, testerSyntheseTotaux_, testerComparaisonExercicePrecedent_,
     testerVueCroisee_, testerListerAnnees_, testerSyntheseParAnnee_, testerVueCroiseeParAnnee_,
-    testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
+    testerSuiviBudgets_, testerStatutsBudget_, testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
     testerDates_, testerMontants_, testerLongueurs_, testerNeutralisationFormules_, testerCentimes_
   ];
   const echecs = [];
@@ -228,6 +228,40 @@ function testerVueCroiseeParAnnee_() {
   verifierEgal_(vue.periodes, ['2025', '2026', ''], 'Colonne vide pour les opérations sans date');
   verifierEgal_(vue.lignes[0], { categorie: 'Cotisations', soldes: [70, 100, 3] }, 'Soldes Cotisations par année');
   verifierEgal_(vue.totaux, [70, 54.52, 3], 'Totaux par année');
+}
+
+/* === Budget prévisionnel ================================================= */
+
+function testerSuiviBudgets_() {
+  const operations = jeuOperations_().concat([
+    operationTest_({ ligne: 7, centimes: 500, categorie: 'Achats jeux' }),
+    operationTest_({ ligne: 8, centimes: -9900, categorie: 'Achats jeux', exercice: '2025' })
+  ]);
+  const suivi = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
+    ['2025', '2026'], ['Cotisations', 'Achats jeux'], { exercice: '', seuilAlerte: 80 });
+  verifierEgal_(suivi.exercice, '2026', 'Exercice par défaut = dernier de la liste');
+  verifierEgal_(suivi.lignes[0], { categorie: 'Achats jeux', budget: 300, consomme: 40.49, reste: 259.51,
+    pourcentage: 13.5, nbOperations: 3, statut: 'OK' }, 'Consommé = dépenses − remboursements de l\'exercice');
+  verifierEgal_(suivi.categoriesHorsListe, [], 'Catégorie connue');
+  const autre = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
+    ['2025', '2026'], ['Achats jeux'], { exercice: '2025', seuilAlerte: 80 });
+  verifierEgal_(autre.lignes[0].consomme, 99, 'Exercice imposé par la configuration');
+  const inconnue = calculerSuiviBudgets_(operations, [{ categorie: 'Achat Jeux', montant: 50 }],
+    ['2025', '2026'], ['Achats jeux'], { exercice: '', seuilAlerte: 80 });
+  verifierEgal_([inconnue.lignes[0].consomme, inconnue.lignes[0].nbOperations, inconnue.categoriesHorsListe],
+    [0, 0, ['Achat Jeux']], 'Catégorie absente de la liste signalée');
+}
+
+function testerStatutsBudget_() {
+  const suivre = (montants) => calculerSuiviBudgets_(jeuOperations_(),
+    montants.map((montant, i) => ({ categorie: i === 0 ? 'Achats jeux' : 'Animations', montant })),
+    ['2025', '2026'], ['Cotisations', 'Achats jeux', 'Animations'], { exercice: '', seuilAlerte: 80 });
+  verifierEgal_(suivre([100]).lignes[0].statut, 'OK', 'Sous le seuil');
+  verifierEgal_(suivre([50]).lignes[0].statut, 'ALERTE', 'Seuil d\'alerte atteint (91 %)');
+  const depasse = suivre([40]).lignes[0];
+  verifierEgal_([depasse.statut, depasse.reste], ['DEPASSE', -5.49], 'Budget dépassé, reste négatif');
+  verifierEgal_(suivre([100, 50]).totaux, { categorie: '', budget: 150, consomme: 45.49, reste: 104.51,
+    pourcentage: 30.3, nbOperations: 2, statut: 'OK' }, 'Totaux de toutes les enveloppes');
 }
 
 /* === Validation de la saisie ============================================= */
