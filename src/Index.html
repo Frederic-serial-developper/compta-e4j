@@ -92,12 +92,19 @@
     <section id="panneau-SYNTHESE" class="pile" role="tabpanel" aria-labelledby="onglet-SYNTHESE" hidden>
       <div class="carte filtres">
         <div class="champ">
-          <label class="label" for="synthese-exercice">Exercice</label>
-          <select id="synthese-exercice"></select>
+          <label class="label" for="synthese-regroupement">Regrouper par</label>
+          <select id="synthese-regroupement">
+            <option value="EXERCICE">Exercice</option>
+            <option value="ANNEE">Année civile</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label class="label" for="synthese-periode" id="synthese-periode-libelle">Exercice</label>
+          <select id="synthese-periode"></select>
         </div>
         <label class="case" for="synthese-comparer">
           <input type="checkbox" id="synthese-comparer">
-          <span>Comparer avec l'exercice précédent</span>
+          <span id="synthese-comparer-libelle">Comparer avec l'exercice précédent</span>
         </label>
       </div>
       <div id="synthese-avertissement" class="bandeau" role="status" hidden></div>

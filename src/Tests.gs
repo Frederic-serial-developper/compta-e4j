@@ -17,7 +17,8 @@ function lancerTests() {
     testerSommesRapprocheNonRapproche_, testerMontantsNegatifsEtTotal_, testerFiltresBilan_,
     testerComptesSansOperation_, testerDetailNonRapprochees_, testerLignesInvalidesIgnorees_,
     testerSyntheseCategorieVide_, testerSyntheseTotaux_, testerComparaisonExercicePrecedent_,
-    testerVueCroisee_, testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
+    testerVueCroisee_, testerListerAnnees_, testerSyntheseParAnnee_, testerVueCroiseeParAnnee_,
+    testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
     testerDates_, testerMontants_, testerLongueurs_, testerNeutralisationFormules_, testerCentimes_
   ];
   const echecs = [];
@@ -157,7 +158,7 @@ function testerLignesInvalidesIgnorees_() {
 
 function testerSyntheseCategorieVide_() {
   const synthese = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations', 'Achats jeux', 'Dons'],
-    ['2025', '2026'], { exercice: '2026', comparer: false });
+    ['2025', '2026'], { periode: '2026', comparer: false });
   const parCategorie = {};
   synthese.lignes.forEach((ligne) => { parCategorie[ligne.categorie] = ligne; });
   verifierEgal_(parCategorie[CONFIG.AFFICHAGE.LIBELLE_SANS_CATEGORIE].solde, 0.01, 'Catégorie vide → Non catégorisé');
@@ -167,8 +168,8 @@ function testerSyntheseCategorieVide_() {
 
 function testerSyntheseTotaux_() {
   const synthese = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations', 'Achats jeux'],
-    ['2025', '2026'], { exercice: '', comparer: false });
-  verifierEgal_(synthese.exercice, '2026', 'Exercice par défaut = dernier de la liste');
+    ['2025', '2026'], { periode: '', comparer: false });
+  verifierEgal_(synthese.periode, '2026', 'Exercice par défaut = dernier de la liste');
   verifierEgal_(synthese.totaux, { recettes: 100.01, depenses: 45.49, resultat: 54.52, nbOperations: 4 },
     'Totaux de l\'exercice');
   const sommeSoldes = synthese.lignes.reduce((somme, ligne) => somme + versCentimes_(ligne.solde), 0);
@@ -180,20 +181,53 @@ function testerSyntheseTotaux_() {
 
 function testerComparaisonExercicePrecedent_() {
   const synthese = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations'], ['2025', '2026'],
-    { exercice: '2026', comparer: true });
+    { periode: '2026', comparer: true });
   const cotisations = synthese.lignes.find((ligne) => ligne.categorie === 'Cotisations');
-  verifierEgal_([synthese.exercicePrecedent, cotisations.soldePrecedent, cotisations.ecart], ['2025', 50, 50],
+  verifierEgal_([synthese.periodePrecedente, cotisations.soldePrecedent, cotisations.ecart], ['2025', 50, 50],
     'Comparaison N-1');
   const premier = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations'], ['2025', '2026'],
-    { exercice: '2025', comparer: true });
-  verifierEgal_(premier.exercicePrecedent, null, 'Pas de N-1 pour le premier exercice');
+    { periode: '2025', comparer: true });
+  verifierEgal_(premier.periodePrecedente, null, 'Pas de N-1 pour le premier exercice');
 }
 
 function testerVueCroisee_() {
   const vue = calculerVueCroisee_(jeuOperations_(), ['Cotisations', 'Achats jeux'], ['2025', '2026']);
-  verifierEgal_(vue.exercices, ['2025', '2026'], 'Colonnes exercices');
+  verifierEgal_(vue.periodes, ['2025', '2026'], 'Colonnes exercices');
   verifierEgal_(vue.lignes[0], { categorie: 'Cotisations', soldes: [50, 100] }, 'Soldes Cotisations');
   verifierEgal_(vue.totaux, [50, 54.52], 'Totaux par exercice');
+}
+
+/** Exercice 2026 commencé en 2025 (ligne 7) et opération sans date (ligne 8). */
+function jeuOperationsAnnees_() {
+  return jeuOperations_().concat([
+    operationTest_({ ligne: 7, centimes: 2000, dateIso: '2025-12-20' }),
+    operationTest_({ ligne: 8, centimes: 300, dateIso: '' })
+  ]);
+}
+
+function testerListerAnnees_() {
+  verifierEgal_(listerAnnees_(jeuOperationsAnnees_()), ['2025', '2026'], 'Années distinctes, triées, sans vide');
+}
+
+function testerSyntheseParAnnee_() {
+  const options = { periode: '2025', comparer: false, regroupement: REGROUPEMENTS_.ANNEE };
+  const synthese = calculerSyntheseParCategorie_(jeuOperationsAnnees_(), ['Cotisations'], ['2025', '2026'], options);
+  verifierEgal_([synthese.regroupement, synthese.periode], ['ANNEE', '2025'], 'Année demandée');
+  verifierEgal_(synthese.totaux, { recettes: 70, depenses: 0, resultat: 70, nbOperations: 2 },
+    'Année 2025 = date en 2025, quel que soit l\'exercice');
+  const comparee = calculerSyntheseParCategorie_(jeuOperationsAnnees_(), ['Cotisations'], ['2025', '2026'],
+    { periode: '2026', comparer: true, regroupement: REGROUPEMENTS_.ANNEE });
+  const cotisations = comparee.lignes.find((ligne) => ligne.categorie === 'Cotisations');
+  verifierEgal_([comparee.periodePrecedente, cotisations.solde, cotisations.soldePrecedent], ['2025', 100, 70],
+    'Comparaison avec l\'année précédente');
+}
+
+function testerVueCroiseeParAnnee_() {
+  const vue = calculerVueCroisee_(jeuOperationsAnnees_(), ['Cotisations', 'Achats jeux'], ['2025', '2026'],
+    REGROUPEMENTS_.ANNEE);
+  verifierEgal_(vue.periodes, ['2025', '2026', ''], 'Colonne vide pour les opérations sans date');
+  verifierEgal_(vue.lignes[0], { categorie: 'Cotisations', soldes: [70, 100, 3] }, 'Soldes Cotisations par année');
+  verifierEgal_(vue.totaux, [70, 54.52, 3], 'Totaux par année');
 }
 
 /* === Validation de la saisie ============================================= */

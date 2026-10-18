@@ -180,7 +180,7 @@ function apiGetContexte() {
  * Renvoie les listes de choix (Compte, Moyen, Exercice, Catégorie).
  * @param {{forcer: boolean}} parametres forcer = vider le cache et relire le Sheet
  *     (bouton « Actualiser ») ; les appels suivants profitent de cette relecture.
- * @return {ReponseApi} data : { listes, avertissements }.
+ * @return {ReponseApi} data : { listes, annees, avertissements }.
  */
 function apiGetListesDeChoix(parametres) {
   return executerApi_(null, (utilisateur) => {
@@ -222,34 +222,41 @@ function apiGetDetailNonRapprochees(filtres) {
 }
 
 /**
- * Synthèse par catégorie pour un exercice, avec comparaison N-1 facultative.
- * @param {{exercice: string, comparer: boolean, forcer: boolean}} parametres
+ * Synthèse par catégorie pour un exercice ou une année civile, avec
+ * comparaison à la période précédente facultative.
+ * @param {{regroupement: string, periode: string, comparer: boolean, forcer: boolean}} parametres
+ *     regroupement 'EXERCICE' (défaut) ou 'ANNEE' ; periode vide = la plus récente.
  * @return {ReponseApi} data : {@link SyntheseParCategorie}.
  */
 function apiGetSyntheseParCategorie(parametres) {
   return executerApi_(null, () => {
-    const { exercice, forcer } = nettoyerFiltres_(parametres);
-    const comparer = Boolean(parametres && parametres.comparer);
-    return lireAvecCache_(`synthese|${exercice}|${comparer}`, forcer, () => {
+    const brut = parametres || {};
+    const regroupement = nettoyerRegroupement_(brut.regroupement);
+    const periode = String(brut.periode || '').trim();
+    const comparer = Boolean(brut.comparer);
+    const forcer = Boolean(brut.forcer);
+    return lireAvecCache_(`synthese|${regroupement}|${periode}|${comparer}`, forcer, () => {
       const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
       const synthese = calculerSyntheseParCategorie_(operations, listes.CATEGORIE.valeurs,
-        listes.EXERCICE.valeurs, { exercice, comparer });
+        listerPeriodes_(regroupement, operations, listes), { periode, comparer, regroupement });
       return Object.assign(synthese, completerReponseDonnees_(lignesIgnorees));
     });
   });
 }
 
 /**
- * Tableau croisé catégories × exercices (soldes).
- * @param {{forcer: boolean}} parametres
+ * Tableau croisé catégories × exercices ou × années civiles (soldes).
+ * @param {{regroupement: string, forcer: boolean}} parametres
  * @return {ReponseApi} data : {@link VueCroisee}.
  */
 function apiGetSyntheseTousExercices(parametres) {
   return executerApi_(null, () => {
+    const regroupement = nettoyerRegroupement_(parametres && parametres.regroupement);
     const forcer = Boolean(parametres && parametres.forcer);
-    return lireAvecCache_('croisee', forcer, () => {
+    return lireAvecCache_(`croisee|${regroupement}`, forcer, () => {
       const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
-      const vue = calculerVueCroisee_(operations, listes.CATEGORIE.valeurs, listes.EXERCICE.valeurs);
+      const vue = calculerVueCroisee_(operations, listes.CATEGORIE.valeurs,
+        listerPeriodes_(regroupement, operations, listes), regroupement);
       return Object.assign(vue, completerReponseDonnees_(lignesIgnorees));
     });
   });
@@ -444,15 +451,17 @@ function construireReglagesClient_() {
  * Listes de choix au format attendu par le navigateur. Les avertissements
  * (liste non paramétrée) ne sont transmis qu'au trésorier.
  * @param {Utilisateur} utilisateur Utilisateur identifié.
- * @return {{listes: Object<string, string[]>, avertissements: string[]}}
+ * @return {{listes: Object<string, string[]>, annees: string[], avertissements: string[]}}
+ *     annees : années civiles des opérations datées (synthèse par année).
  */
 function construireListesClient_(utilisateur) {
-  const { listes } = lireDonnees_();
+  const { listes, operations } = lireDonnees_();
   const avertissements = Object.keys(listes)
     .filter((cle) => !listes[cle].estParametree)
     .map((cle) => remplacerVariables_(CONFIG.MESSAGES.LISTE_NON_PARAMETREE, { colonne: CONFIG.COLONNES[cle] }));
   return {
     listes: valeursDesListes_(listes),
+    annees: listerAnnees_(operations),
     avertissements: utilisateur.role === CONFIG.ROLES.TRESORIER ? avertissements : []
   };
 }
@@ -470,6 +479,27 @@ function nettoyerFiltres_(filtres) {
     dateFin,
     forcer: Boolean(brut.forcer)
   };
+}
+
+/**
+ * Normalise le mode de regroupement reçu du navigateur.
+ * @param {*} valeur Valeur brute.
+ * @return {string} 'ANNEE' ou 'EXERCICE' (par défaut).
+ */
+function nettoyerRegroupement_(valeur) {
+  return valeur === REGROUPEMENTS_.ANNEE ? REGROUPEMENTS_.ANNEE : REGROUPEMENTS_.EXERCICE;
+}
+
+/**
+ * Périodes disponibles pour un regroupement : exercices de la liste de choix,
+ * ou années civiles présentes dans les données.
+ * @param {string} regroupement 'EXERCICE' ou 'ANNEE'.
+ * @param {Operation[]} operations Opérations lues.
+ * @param {Object<string, {valeurs: string[]}>} listes Listes de choix.
+ * @return {string[]} Périodes, de la plus ancienne à la plus récente.
+ */
+function listerPeriodes_(regroupement, operations, listes) {
+  return regroupement === REGROUPEMENTS_.ANNEE ? listerAnnees_(operations) : listes.EXERCICE.valeurs;
 }
 
 /**

@@ -354,6 +354,13 @@ Pour un exercice sélectionné, tableau des totaux par `Catégorie Bilan Financi
 
 Tableau croisé : catégories en lignes, exercices en colonnes, soldes dans les cellules, ligne de total par exercice. Permet de suivre l'évolution d'une catégorie dans le temps.
 
+### 6.4 Regroupement par année civile
+
+- **Sélecteur** « Regrouper par » : **Exercice** (défaut) ou **Année civile**.
+- En année civile, la période d'une opération est l'année de sa date (`Quand`), indépendamment de son `Exercice`. La liste des années est déduite des opérations datées (ordre croissant), défaut = **année la plus récente**.
+- La synthèse (§6.2), la comparaison avec l'année précédente et la vue « Tous » (§6.3, années en colonnes) fonctionnent de la même manière.
+- Les opérations sans date valide n'apparaissent dans aucune année ; dans la vue « Tous », elles sont regroupées dans une colonne « — » pour que les totaux restent complets.
+
 ---
 
 ## 7. Fonctionnalité 3 — Ajout d'une opération

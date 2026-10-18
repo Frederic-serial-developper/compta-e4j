@@ -121,21 +121,23 @@
  */
 
 /**
- * Synthèse d'un exercice.
+ * Synthèse d'une période (exercice ou année civile).
  * @typedef {Object} SyntheseParCategorie
- * @property {string} exercice
- * @property {?string} exercicePrecedent null si pas de comparaison possible.
+ * @property {string} regroupement 'EXERCICE' ou 'ANNEE'.
+ * @property {string} periode Exercice ou année (AAAA) synthétisé.
+ * @property {?string} periodePrecedente null si pas de comparaison possible.
  * @property {LigneSynthese[]} lignes Triées par solde décroissant.
  * @property {{recettes: number, depenses: number, resultat: number, nbOperations: number}} totaux
  * @property {{nombre: number, montant: number}} nonRapprochees
  */
 
 /**
- * Vue croisée catégories × exercices.
+ * Vue croisée catégories × périodes (exercices ou années civiles).
  * @typedef {Object} VueCroisee
- * @property {string[]} exercices Colonnes.
+ * @property {string} regroupement 'EXERCICE' ou 'ANNEE'.
+ * @property {string[]} periodes Colonnes ('' = sans exercice ou sans date).
  * @property {{categorie: string, soldes: number[]}[]} lignes
- * @property {number[]} totaux Total par exercice.
+ * @property {number[]} totaux Total par période.
  */
 
 /**

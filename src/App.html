@@ -19,6 +19,12 @@
     HAUTEUR_LIGNE_DETAIL_PX: 70      // Hauteur approximative d'une opération dans le détail
   };
 
+  /** Libellés de la synthèse selon le regroupement choisi (exercice ou année civile). */
+  const LIBELLES_REGROUPEMENT = {
+    EXERCICE: { periode: 'Exercice', precedente: 'l\'exercice précédent', resultat: 'de l\'exercice', colonnes: 'par exercice' },
+    ANNEE: { periode: 'Année', precedente: 'l\'année précédente', resultat: 'de l\'année', colonnes: 'par année civile' }
+  };
+
   /* --- État de l'interface --------------------------------------------- */
   const etat = {
     contexte: null,
@@ -70,7 +76,8 @@
     $('lien-actualiser').addEventListener('click', actualiser);
     $('bilan-exercice').addEventListener('change', () => chargerBilan(false));
     $('bilan-date-fin').addEventListener('change', () => chargerBilan(false));
-    $('synthese-exercice').addEventListener('change', () => chargerSynthese(false));
+    $('synthese-regroupement').addEventListener('change', () => { remplirPeriodesSynthese(); chargerSynthese(false); });
+    $('synthese-periode').addEventListener('change', () => chargerSynthese(false));
     $('synthese-comparer').addEventListener('change', () => chargerSynthese(false));
     $('formulaire-ajout').addEventListener('submit', envoyerFormulaire);
     $('formulaire-ajout').addEventListener('input', mettreAJourBoutonEnregistrer);
@@ -167,13 +174,28 @@
     const dernier = exercices[exercices.length - 1] || '';
     const tous = { valeur: '', libelle: etat.contexte.reglages.libelleTous };
     remplirSelect($('bilan-exercice'), [tous].concat(versOptions(exercices)), '');
-    remplirSelect($('synthese-exercice'), versOptions(exercices).concat([tous]), dernier);
+    remplirPeriodesSynthese();
     ['COMPTE', 'MOYEN', 'EXERCICE', 'CATEGORIE'].forEach((cle) => {
       const choisir = { valeur: '', libelle: '— Choisir —' };
       remplirSelect($(`champ-${cle}`), [choisir].concat(versOptions(listes[cle])), cle === 'EXERCICE' ? dernier : '');
     });
     afficherAvertissements(avertissements);
     mettreAJourBoutonEnregistrer();  // Une sélection a pu disparaître de la liste
+  }
+
+  /**
+   * Remplit la liste des périodes de la synthèse (exercices ou années civiles)
+   * et adapte les libellés au regroupement choisi. Défaut = période la plus récente.
+   */
+  function remplirPeriodesSynthese() {
+    const regroupement = $('synthese-regroupement').value;
+    const { listes, annees } = etat.contexte.listes;
+    const periodes = regroupement === 'ANNEE' ? (annees || []) : listes.EXERCICE;
+    const libelles = LIBELLES_REGROUPEMENT[regroupement];
+    const tous = { valeur: '', libelle: etat.contexte.reglages.libelleTous };
+    remplirSelect($('synthese-periode'), versOptions(periodes).concat([tous]), periodes[periodes.length - 1] || '');
+    $('synthese-periode-libelle').textContent = libelles.periode;
+    $('synthese-comparer-libelle').textContent = `Comparer avec ${libelles.precedente}`;
   }
 
   /**
@@ -332,30 +354,32 @@
   /* === Synthèse par catégorie ========================================== */
 
   /**
-   * Demande la synthèse d'un exercice, ou la vue croisée si « Tous » est choisi.
+   * Demande la synthèse d'un exercice ou d'une année civile, ou la vue croisée
+   * si « Tous » est choisi.
    * @param {boolean} forcer Vrai pour ignorer le cache.
    */
   async function chargerSynthese(forcer) {
     const jeton = ++etat.jetons.SYNTHESE;
-    const exercice = $('synthese-exercice').value;
-    $('synthese-comparer').disabled = exercice === '';
+    const regroupement = $('synthese-regroupement').value;
+    const periode = $('synthese-periode').value;
+    $('synthese-comparer').disabled = periode === '';
     basculerChargement($('synthese-contenu'), true);
-    const reponse = exercice === ''
-      ? await appelerApi('apiGetSyntheseTousExercices', { forcer })
-      : await appelerApi('apiGetSyntheseParCategorie', { exercice, comparer: $('synthese-comparer').checked, forcer });
+    const reponse = periode === ''
+      ? await appelerApi('apiGetSyntheseTousExercices', { regroupement, forcer })
+      : await appelerApi('apiGetSyntheseParCategorie', { regroupement, periode, comparer: $('synthese-comparer').checked, forcer });
     if (jeton !== etat.jetons.SYNTHESE) return;
     basculerChargement($('synthese-contenu'), false);
     if (!reponse.ok) return signalerErreur(reponse);
     etat.perimes.SYNTHESE = false;
     afficherBandeau($('synthese-avertissement'), reponse.data.avertissement);
     afficherMiseAJour(reponse.data.miseAJour);
-    if (exercice === '') return afficherVueCroisee(reponse.data);
+    if (periode === '') return afficherVueCroisee(reponse.data);
     etat.synthese = reponse.data;
     etat.tri = { cle: 'solde', sens: -1 };
     afficherSynthese();
   }
 
-  /** Affiche la synthèse de l'exercice courant (etat.synthese). */
+  /** Affiche la synthèse de la période courante (etat.synthese). */
   function afficherSynthese() {
     const synthese = etat.synthese;
     const { nombre, montant } = synthese.nonRapprochees;
@@ -375,15 +399,17 @@
    * @return {HTMLElement} Carte contenant le tableau.
    */
   function creerTableauSynthese(synthese) {
-    const comparer = synthese.exercicePrecedent !== null;
+    const comparer = synthese.periodePrecedente !== null;
+    const libelles = LIBELLES_REGROUPEMENT[synthese.regroupement];
     const colonnes = [['categorie', 'Catégorie'], ['recettes', 'Recettes'], ['depenses', 'Dépenses'],
       ['solde', 'Solde'], ['nbOperations', 'Nb'], ['pourcentage', '% du total']];
-    if (comparer) colonnes.push(['soldePrecedent', `Solde ${synthese.exercicePrecedent}`], ['ecart', 'Écart']);
+    if (comparer) colonnes.push(['soldePrecedent', `Solde ${synthese.periodePrecedente}`], ['ecart', 'Écart']);
     const entete = creer('tr', {}, colonnes.map(([cle, libelle]) => creerEnteteTriable(cle, libelle)));
     const lignes = trierLignes(synthese.lignes).map((ligne) => creerLigneSynthese(ligne, comparer));
     const tableau = creer('table', {}, [
-      creer('caption', { classe: 'label legende-tableau', texte: `Exercice ${synthese.exercice}` }),
-      creer('thead', {}, [entete]), creer('tbody', {}, lignes), creerPiedSynthese(synthese.totaux, colonnes.length)]);
+      creer('caption', { classe: 'label legende-tableau', texte: `${libelles.periode} ${synthese.periode}` }),
+      creer('thead', {}, [entete]), creer('tbody', {}, lignes),
+      creerPiedSynthese(synthese.totaux, colonnes.length, libelles.resultat)]);
     return creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]);
   }
 
@@ -438,11 +464,12 @@
 
   /**
    * Pied du tableau de synthèse : totaux puis résultat (excédent / déficit).
-   * @param {Object} totaux Totaux de l'exercice.
+   * @param {Object} totaux Totaux de la période.
    * @param {number} nbColonnes Nombre de colonnes du tableau.
+   * @param {string} complement Fin du libellé « Résultat … » (ex. « de l'exercice »).
    * @return {HTMLTableSectionElement} Pied de tableau.
    */
-  function creerPiedSynthese(totaux, nbColonnes) {
+  function creerPiedSynthese(totaux, nbColonnes, complement) {
     const estExcedent = totaux.resultat >= 0;
     const totalLigne = creer('tr', {}, [
       creerCellule('Total'), creerCelluleMontant(totaux.recettes), creerCelluleMontant(-totaux.depenses, totaux.depenses),
@@ -450,7 +477,7 @@
       creer('td', { attributs: { colspan: String(nbColonnes - 5) } })]);
     const resultat = creer('tr', { classe: `resultat ${estExcedent ? 'resultat--excedent' : 'resultat--deficit'}` }, [
       creer('td', { attributs: { colspan: '3' } }, [
-        creer('span', { texte: 'Résultat de l\'exercice ' }),
+        creer('span', { texte: `Résultat ${complement} ` }),
         creer('span', { classe: estExcedent ? 'badge badge--succes' : 'badge badge--danger', texte: estExcedent ? 'Excédent' : 'Déficit' })]),
       creer('td', { classe: 'nombre montant', texte: formaterMontant(totaux.resultat) }),
       creer('td', { attributs: { colspan: String(nbColonnes - 4) } })]);
@@ -479,17 +506,17 @@
   }
 
   /**
-   * Tableau croisé catégories × exercices (soldes), avec total par exercice.
-   * @param {{exercices: string[], lignes: Object[], totaux: number[]}} vue Vue renvoyée par le serveur.
+   * Tableau croisé catégories × périodes (soldes), avec total par période.
+   * @param {{regroupement: string, periodes: string[], lignes: Object[], totaux: number[]}} vue Vue renvoyée par le serveur.
    */
   function afficherVueCroisee(vue) {
     const entete = creer('tr', {}, [creer('th', { texte: 'Catégorie', attributs: { scope: 'col' } })].concat(
-      vue.exercices.map((exercice) => creer('th', { classe: 'nombre', texte: exercice || '—', attributs: { scope: 'col' } }))));
+      vue.periodes.map((periode) => creer('th', { classe: 'nombre', texte: periode || '—', attributs: { scope: 'col' } }))));
     const lignes = vue.lignes.map((ligne) => creer('tr', {}, [creerCellule(ligne.categorie)].concat(
       ligne.soldes.map((solde) => creerCelluleMontant(solde)))));
     const total = creer('tr', {}, [creerCellule('Résultat')].concat(vue.totaux.map((solde) => creerCelluleMontant(solde))));
     const tableau = creer('table', {}, [
-      creer('caption', { classe: 'label legende-tableau', texte: 'Soldes par catégorie et par exercice' }),
+      creer('caption', { classe: 'label legende-tableau', texte: `Soldes par catégorie et ${LIBELLES_REGROUPEMENT[vue.regroupement].colonnes}` }),
       creer('thead', {}, [entete]), creer('tbody', {}, lignes), creer('tfoot', {}, [total])]);
     $('synthese-contenu').replaceChildren(
       creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]));

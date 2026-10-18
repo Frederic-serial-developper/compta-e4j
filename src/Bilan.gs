@@ -3,11 +3,12 @@
  *
  *  Rôle : calculs purs à partir d'opérations déjà lues (aucun appel à
  *         SpreadsheetApp) : soldes par compte, détail des non rapprochées,
- *         synthèse par catégorie, vue croisée par exercice.
+ *         synthèse par catégorie, vue croisée, par exercice ou par
+ *         année civile (année de la date de l'opération).
  *         Les calculs se font en centimes entiers ; les résultats sont
  *         convertis en euros à la fin.
  *  Fonctions principales : calculerSoldesParCompte_, listerNonRapprochees_,
- *         calculerSyntheseParCategorie_, calculerVueCroisee_.
+ *         calculerSyntheseParCategorie_, calculerVueCroisee_, listerAnnees_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -65,59 +66,103 @@ function listerNonRapprochees_(operations, compte, filtres) {
 /* === Synthèse par catégorie ============================================== */
 
 /**
- * Synthèse d'un exercice par catégorie, avec comparaison facultative à
- * l'exercice précédent (dans l'ordre de la liste de choix).
+ * Synthèse d'une période (exercice ou année civile) par catégorie, avec
+ * comparaison facultative à la période précédente (dans l'ordre de la liste).
  * @param {Operation[]} operations Opérations lues.
  * @param {string[]} categories Catégories de la liste de choix.
- * @param {string[]} exercices Exercices de la liste de choix (ordre conservé).
- * @param {{exercice: string, comparer: boolean}} options exercice vide ou
- *     inconnu = dernier exercice de la liste.
+ * @param {string[]} periodes Périodes disponibles, dans l'ordre (exercices de
+ *     la liste de choix, ou années présentes dans les données).
+ * @param {{periode: string, comparer: boolean, regroupement: string}} options
+ *     periode vide ou inconnue = dernière période de la liste ; regroupement
+ *     'EXERCICE' (défaut) ou 'ANNEE'.
  * @return {SyntheseParCategorie} Synthèse en euros.
  */
-function calculerSyntheseParCategorie_(operations, categories, exercices, options) {
-  const exercice = exercices.includes(options.exercice) ? options.exercice : exercices[exercices.length - 1] || '';
-  const position = exercices.indexOf(exercice);
-  const exercicePrecedent = options.comparer && position > 0 ? exercices[position - 1] : null;
-  const delExercice = operations.filter((operation) => operation.exercice === exercice);
-  const cumuls = cumulerParCategorie_(delExercice, categories);
+function calculerSyntheseParCategorie_(operations, categories, periodes, options) {
+  const regroupement = options.regroupement || REGROUPEMENTS_.EXERCICE;
+  const periode = periodes.includes(options.periode) ? options.periode : periodes[periodes.length - 1] || '';
+  const position = periodes.indexOf(periode);
+  const periodePrecedente = options.comparer && position > 0 ? periodes[position - 1] : null;
+  const deLaPeriode = filtrerParPeriode_(operations, regroupement, periode);
+  const cumuls = cumulerParCategorie_(deLaPeriode, categories);
   const totaux = totaliserCategories_(cumuls);
-  const precedents = exercicePrecedent === null ? null : cumulerParCategorie_(
-    operations.filter((operation) => operation.exercice === exercicePrecedent), categories);
+  const precedents = periodePrecedente === null ? null : cumulerParCategorie_(
+    filtrerParPeriode_(operations, regroupement, periodePrecedente), categories);
   const lignes = Array.from(cumuls, ([categorie, cumul]) =>
     construireLigneSynthese_(categorie, cumul, totaux, precedents));
   lignes.sort((a, b) => b.solde - a.solde || a.categorie.localeCompare(b.categorie));
   return {
-    exercice,
-    exercicePrecedent,
+    regroupement,
+    periode,
+    periodePrecedente,
     lignes,
     totaux: totauxEnEuros_(totaux),
-    nonRapprochees: compterNonRapprochees_(delExercice)
+    nonRapprochees: compterNonRapprochees_(deLaPeriode)
   };
 }
 
 /**
- * Tableau croisé : soldes par catégorie (lignes) et par exercice (colonnes).
- * Les opérations sans exercice sont regroupées dans une dernière colonne au
- * libellé vide, pour que les totaux restent complets.
+ * Tableau croisé : soldes par catégorie (lignes) et par période (colonnes).
+ * Les opérations sans période (exercice vide, ou date absente pour les années)
+ * sont regroupées dans une dernière colonne au libellé vide, pour que les
+ * totaux restent complets.
  * @param {Operation[]} operations Opérations lues.
  * @param {string[]} categories Catégories de la liste de choix.
- * @param {string[]} exercices Exercices de la liste de choix.
+ * @param {string[]} periodes Périodes disponibles, dans l'ordre.
+ * @param {string} [regroupement] 'EXERCICE' (défaut) ou 'ANNEE'.
  * @return {VueCroisee} Vue croisée en euros.
  */
-function calculerVueCroisee_(operations, categories, exercices) {
-  const colonnes = completerCles_(exercices, operations.map((operation) => operation.exercice));
-  const parExercice = colonnes.map((exercice) => cumulerParCategorie_(
-    operations.filter((operation) => operation.exercice === exercice), categories));
+function calculerVueCroisee_(operations, categories, periodes, regroupement = REGROUPEMENTS_.EXERCICE) {
+  const colonnes = completerCles_(periodes, operations.map((operation) => periodeDe_(operation, regroupement)));
+  const parPeriode = colonnes.map((periode) => cumulerParCategorie_(
+    filtrerParPeriode_(operations, regroupement, periode), categories));
   const lignesCategories = completerCles_(categories,
     operations.map((operation) => libelleCategorie_(operation.categorie)));
   return {
-    exercices: colonnes,
+    regroupement,
+    periodes: colonnes,
     lignes: lignesCategories.map((categorie) => ({
       categorie,
-      soldes: parExercice.map((cumuls) => versEuros_(soldeDe_(cumuls.get(categorie))))
+      soldes: parPeriode.map((cumuls) => versEuros_(soldeDe_(cumuls.get(categorie))))
     })),
-    totaux: parExercice.map((cumuls) => versEuros_(totaliserCategories_(cumuls).solde))
+    totaux: parPeriode.map((cumuls) => versEuros_(totaliserCategories_(cumuls).solde))
   };
+}
+
+/**
+ * Années civiles présentes dans les opérations datées, par ordre croissant.
+ * @param {Operation[]} operations Opérations lues.
+ * @return {string[]} Années (AAAA).
+ */
+function listerAnnees_(operations) {
+  return Array.from(new Set(operations.map((operation) => periodeDe_(operation, REGROUPEMENTS_.ANNEE))))
+    .filter((annee) => annee !== '')
+    .sort();
+}
+
+/* === Fonctions internes : périodes ======================================= */
+
+/** Modes de regroupement de la synthèse. */
+const REGROUPEMENTS_ = Object.freeze({ EXERCICE: 'EXERCICE', ANNEE: 'ANNEE' });
+
+/**
+ * Période d'une opération : son exercice, ou l'année civile de sa date.
+ * @param {Operation} operation Opération.
+ * @param {string} regroupement 'EXERCICE' ou 'ANNEE'.
+ * @return {string} Période ('' si non renseignée ou date invalide).
+ */
+function periodeDe_(operation, regroupement) {
+  if (regroupement === REGROUPEMENTS_.ANNEE) return operation.dateIso ? operation.dateIso.slice(0, 4) : '';
+  return operation.exercice;
+}
+
+/**
+ * @param {Operation[]} operations Opérations lues.
+ * @param {string} regroupement 'EXERCICE' ou 'ANNEE'.
+ * @param {string} periode Période recherchée.
+ * @return {Operation[]} Opérations de la période.
+ */
+function filtrerParPeriode_(operations, regroupement, periode) {
+  return operations.filter((operation) => periodeDe_(operation, regroupement) === periode);
 }
 
 /* === Fonctions internes : filtres et clés ================================ */
@@ -205,7 +250,7 @@ function cumulCompteEnEuros_(compte, cumul) {
 
 /**
  * Cumule recettes, dépenses et nombre d'opérations par catégorie.
- * @param {Operation[]} operations Opérations d'un exercice.
+ * @param {Operation[]} operations Opérations d'une période.
  * @param {string[]} categories Catégories de la liste (toutes présentes, même à 0).
  * @return {Map<string, {recettes: number, depenses: number, nb: number}>} Cumuls en centimes.
  */
@@ -252,8 +297,8 @@ function totaliserCategories_(cumuls) {
  * sinon sur le total des dépenses.
  * @param {string} categorie Libellé.
  * @param {{recettes: number, depenses: number, nb: number}} cumul Cumul en centimes.
- * @param {{recettes: number, depenses: number}} totaux Totaux de l'exercice en centimes.
- * @param {?Map} precedents Cumuls de l'exercice précédent, ou null.
+ * @param {{recettes: number, depenses: number}} totaux Totaux de la période en centimes.
+ * @param {?Map} precedents Cumuls de la période précédente, ou null.
  * @return {LigneSynthese} Ligne en euros.
  */
 function construireLigneSynthese_(categorie, cumul, totaux, precedents) {
@@ -275,7 +320,7 @@ function construireLigneSynthese_(categorie, cumul, totaux, precedents) {
 }
 
 /**
- * Convertit les totaux d'un exercice en euros.
+ * Convertit les totaux d'une période en euros.
  * @param {{recettes: number, depenses: number, solde: number, nb: number}} totaux Totaux en centimes.
  * @return {{recettes: number, depenses: number, resultat: number, nbOperations: number}} Totaux en euros.
  */
@@ -290,7 +335,7 @@ function totauxEnEuros_(totaux) {
 
 /**
  * Nombre et montant cumulé (signé) des opérations non rapprochées.
- * @param {Operation[]} operations Opérations d'un exercice.
+ * @param {Operation[]} operations Opérations d'une période.
  * @return {{nombre: number, montant: number}} Montant en euros.
  */
 function compterNonRapprochees_(operations) {
