@@ -37,7 +37,9 @@
     tri: { cle: 'solde', sens: -1 },
     formateurMontant: null,
     envoiEnCours: false,
-    bilanAnticipe: null
+    bilanAnticipe: null,
+    budgets: null,
+    ventiler: false
   };
 
   /** Champs texte et listes du formulaire, dans l'ordre d'affichage. */
@@ -80,6 +82,10 @@
     $('synthese-regroupement').addEventListener('change', () => { remplirPeriodesSynthese(); chargerSynthese(false); });
     $('synthese-periode').addEventListener('change', () => chargerSynthese(false));
     $('synthese-comparer').addEventListener('change', () => chargerSynthese(false));
+    $('budget-ventiler').addEventListener('change', (evenement) => {
+      etat.ventiler = evenement.target.checked;
+      if (etat.budgets) afficherBudgets(etat.budgets);
+    });
     $('formulaire-ajout').addEventListener('submit', envoyerFormulaire);
     $('formulaire-ajout').addEventListener('input', mettreAJourBoutonEnregistrer);
     $('formulaire-ajout').addEventListener('change', mettreAJourBoutonEnregistrer);
@@ -540,11 +546,13 @@
     etat.perimes.BUDGET = false;
     afficherBandeau($('budget-avertissement'), reponse.data.avertissement);
     afficherMiseAJour(reponse.data.miseAJour);
+    etat.budgets = reponse.data;
     afficherBudgets(reponse.data);
   }
 
   /**
-   * Affiche les tuiles de total puis une jauge par enveloppe.
+   * Affiche les tuiles de total puis une jauge par enveloppe, avec ou sans
+   * report des dépassements selon l'interrupteur (etat.ventiler).
    * @param {Object} suivi Suivi renvoyé par apiGetSuiviBudgets.
    */
   function afficherBudgets(suivi) {
@@ -557,39 +565,60 @@
       creerTuile('Budget', suivi.totaux.budget),
       creerTuile('Consommé', -suivi.totaux.consomme),
       creerTuile('Reste', suivi.totaux.reste, true)]);
-    $('budget-contenu').replaceChildren(titre, tuiles, ...suivi.lignes.map(creerCarteEnveloppe));
+    const nonCouvert = etat.ventiler && suivi.depassementNonCouvert > 0
+      ? creer('div', { classe: 'bandeau bandeau--danger', attributs: { role: 'status' },
+        texte: `Les autres enveloppes ne suffisent pas : ${formaterMontant(suivi.depassementNonCouvert)} de dépassement restent non couverts.` })
+      : null;
+    $('budget-contenu').replaceChildren(...[titre, tuiles, nonCouvert, ...suivi.lignes.map(creerCarteEnveloppe)]
+      .filter(Boolean));
   }
 
   /**
-   * Carte d'une enveloppe : jauge de consommation, consommé et reste.
+   * Carte d'une enveloppe : jauge de consommation, consommé et reste. Avec la
+   * ventilation, la part reçue d'autres enveloppes est hachurée dans la jauge.
    * @param {Object} ligne Ligne du suivi budgétaire.
    * @return {HTMLElement} Carte.
    */
   function creerCarteEnveloppe(ligne) {
     const locale = etat.contexte.reglages.locale;
-    const pourcentage = `${ligne.pourcentage.toLocaleString(locale)} %`;
+    const { recu, cede } = ligne.ventilation;
+    const affichee = etat.ventiler ? Object.assign({}, ligne, ligne.ventilation) : ligne;
+    const pourcentage = `${affichee.pourcentage.toLocaleString(locale)} %`;
     const badges = {
       OK: { classe: 'badge badge--succes', texte: 'Dans le budget' },
       ALERTE: { classe: 'badge', texte: 'Bientôt atteint' },
       DEPASSE: { classe: 'badge badge--danger', texte: 'Dépassé' }
     };
+    const badge = etat.ventiler && cede > 0 && affichee.statut !== 'DEPASSE'
+      ? { classe: 'badge', texte: 'Dépassement reporté' }
+      : badges[affichee.statut];
+    const borner = (valeur) => Math.min(Math.max(valeur, 0), 100);
+    const partPropre = borner(ligne.budget === 0 ? 0 : ((affichee.consomme - (etat.ventiler ? recu : 0)) / ligne.budget) * 100);
+    const partRecue = etat.ventiler && recu > 0 ? borner(borner(affichee.pourcentage) - partPropre) : 0;
+    const classeStatut = `jauge__remplissage--${affichee.statut.toLowerCase()}`;
     const jauge = creer('div', { classe: 'jauge', attributs: {
       role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
-      'aria-valuenow': String(Math.min(Math.max(ligne.pourcentage, 0), 100)),
+      'aria-valuenow': String(borner(affichee.pourcentage)),
       'aria-label': `${ligne.categorie} : ${pourcentage} du budget consommé` } }, [
-      creer('div', { classe: `jauge__remplissage jauge__remplissage--${ligne.statut.toLowerCase()}` })]);
-    jauge.firstChild.style.width = `${Math.min(Math.max(ligne.pourcentage, 0), 100)}%`;
-    const reste = ligne.reste >= 0
-      ? `Reste ${formaterMontant(ligne.reste)}`
-      : `Dépassement de ${formaterMontant(-ligne.reste)}`;
+      creer('div', { classe: `jauge__remplissage ${classeStatut}` }),
+      partRecue > 0 ? creer('div', { classe: `jauge__remplissage jauge__remplissage--ventile ${classeStatut}` }) : null]);
+    jauge.children[0].style.width = `${partPropre}%`;
+    if (partRecue > 0) jauge.children[1].style.width = `${partRecue}%`;
+    const reste = affichee.reste >= 0
+      ? `Reste ${formaterMontant(affichee.reste)}`
+      : `Dépassement de ${formaterMontant(-affichee.reste)}`;
+    let detailVentilation = null;
+    if (etat.ventiler && recu > 0) detailVentilation = `Dont ${formaterMontant(recu)} reçus des enveloppes dépassées (hachuré)`;
+    if (etat.ventiler && cede > 0) detailVentilation = `${formaterMontant(cede)} de dépassement reportés sur les autres enveloppes`;
     return creer('div', { classe: 'carte enveloppe' }, [
       creer('div', { classe: 'enveloppe__haut' }, [
         creer('h2', { classe: 'carte__titre', texte: ligne.categorie }),
-        creer('span', { classe: badges[ligne.statut].classe, texte: badges[ligne.statut].texte })]),
+        creer('span', { classe: badge.classe, texte: badge.texte })]),
       jauge,
       creer('div', { classe: 'enveloppe__chiffres' }, [
-        creer('span', { classe: 'montant', texte: `${formaterMontant(ligne.consomme)} / ${formaterMontant(ligne.budget)} (${pourcentage})` }),
-        creer('span', { classe: `montant ${classeMontant(ligne.reste)}`, texte: reste })]),
+        creer('span', { classe: 'montant', texte: `${formaterMontant(affichee.consomme)} / ${formaterMontant(ligne.budget)} (${pourcentage})` }),
+        creer('span', { classe: `montant ${classeMontant(affichee.reste)}`, texte: reste })]),
+      detailVentilation ? creer('div', { classe: 'enveloppe__ventilation', texte: detailVentilation }) : null,
       creer('div', { classe: 'ligne-liste__meta', texte: `${ligne.nbOperations} opération(s)` })]);
   }
 

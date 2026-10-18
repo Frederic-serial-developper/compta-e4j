@@ -114,6 +114,12 @@
 
     <!-- === Suivi du budget prévisionnel ================================== -->
     <section id="panneau-BUDGET" class="pile" role="tabpanel" aria-labelledby="onglet-BUDGET" hidden>
+      <div class="carte">
+        <label class="case interrupteur" for="budget-ventiler">
+          <input type="checkbox" role="switch" id="budget-ventiler">
+          <span>Reporter les dépassements sur les autres enveloppes (au prorata de leur budget)</span>
+        </label>
+      </div>
       <div id="budget-avertissement" class="bandeau" role="status" hidden></div>
       <div id="budget-contenu" class="pile zone-chargement"></div>
     </section>

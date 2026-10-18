@@ -9,7 +9,7 @@
  *         résultats sont convertis en euros à la fin.
  *  Fonctions principales : calculerSoldesParCompte_, listerNonRapprochees_,
  *         calculerSyntheseParCategorie_, calculerVueCroisee_,
- *         calculerSuiviBudgets_, listerAnnees_.
+ *         calculerSuiviBudgets_, ventilerDepassements_, listerAnnees_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -137,6 +137,8 @@ const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DE
 /**
  * Consommation des enveloppes budgétaires sur un exercice. Le consommé d'une
  * enveloppe est le montant net dépensé dans sa catégorie (dépenses − recettes).
+ * Chaque ligne porte aussi sa version « ventilée » (voir ventilerDepassements_),
+ * que le navigateur affiche à la demande.
  * @param {Operation[]} operations Opérations lues.
  * @param {{categorie: string, montant: number}[]} enveloppes Budgets en euros (CONFIG.BUDGET.ENVELOPPES).
  * @param {string[]} exercices Exercices de la liste de choix, dans l'ordre.
@@ -148,23 +150,93 @@ const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DE
 function calculerSuiviBudgets_(operations, enveloppes, exercices, categories, options) {
   const exercice = options.exercice || exercices[exercices.length - 1] || '';
   const cumuls = cumulerParCategorie_(filtrerParPeriode_(operations, REGROUPEMENTS_.EXERCICE, exercice), categories);
-  const totaux = { budget: 0, consomme: 0 };
-  const lignes = enveloppes.map(({ categorie, montant }) => {
-    const budget = versCentimes_(montant);
-    const consomme = -soldeDe_(cumuls.get(categorie));
-    totaux.budget += budget;
-    totaux.consomme += consomme;
-    return construireLigneBudget_(categorie, budget, consomme, cumuls.has(categorie) ? cumuls.get(categorie).nb : 0,
+  const postes = enveloppes.map(({ categorie, montant }) => ({
+    categorie,
+    budget: versCentimes_(montant),
+    consomme: -soldeDe_(cumuls.get(categorie)),
+    nb: cumuls.has(categorie) ? cumuls.get(categorie).nb : 0
+  }));
+  const ventilation = ventilerDepassements_(postes);
+  const lignes = postes.map((poste, i) => {
+    const { recu, cede } = ventilation.parPoste[i];
+    const ventilee = construireLigneBudget_(poste.categorie, poste.budget, poste.consomme + recu - cede, poste.nb,
       options.seuilAlerte);
+    return Object.assign(construireLigneBudget_(poste.categorie, poste.budget, poste.consomme, poste.nb,
+      options.seuilAlerte), {
+      ventilation: {
+        recu: versEuros_(recu),
+        cede: versEuros_(cede),
+        consomme: ventilee.consomme,
+        reste: ventilee.reste,
+        pourcentage: ventilee.pourcentage,
+        statut: ventilee.statut
+      }
+    });
   });
+  const somme = (cle) => postes.reduce((total, poste) => total + poste[cle], 0);
   return {
     exercice,
     lignes,
-    totaux: construireLigneBudget_('', totaux.budget, totaux.consomme,
-      lignes.reduce((somme, ligne) => somme + ligne.nbOperations, 0), options.seuilAlerte),
+    totaux: construireLigneBudget_('', somme('budget'), somme('consomme'), somme('nb'), options.seuilAlerte),
+    depassementNonCouvert: versEuros_(ventilation.nonCouvert),
     categoriesHorsListe: enveloppes.map((enveloppe) => enveloppe.categorie)
       .filter((categorie) => !categories.includes(categorie))
   };
+}
+
+/**
+ * Reporte les dépassements d'enveloppes sur les enveloppes non dépassées, au
+ * prorata de leur budget. Une enveloppe n'absorbe jamais plus que son reste :
+ * l'excédent est réparti à nouveau sur celles qui ont encore de la marge.
+ * Ce qui ne peut être absorbé reste à la charge des enveloppes dépassées.
+ * @param {{budget: number, consomme: number}[]} postes Montants en centimes.
+ * @return {{parPoste: {recu: number, cede: number}[], nonCouvert: number}}
+ *     recu = dépassement absorbé, cede = dépassement reporté ailleurs (centimes).
+ */
+function ventilerDepassements_(postes) {
+  const depassements = postes.map((poste) => Math.max(poste.consomme - poste.budget, 0));
+  const capacites = postes.map((poste, i) => (depassements[i] > 0 ? 0 : Math.max(poste.budget - poste.consomme, 0)));
+  const recus = postes.map(() => 0);
+  const total = depassements.reduce((somme, montant) => somme + montant, 0);
+  let aRepartir = total;
+  let actifs = postes.map((poste, i) => i).filter((i) => capacites[i] > 0);
+  // Chaque passage répartit tout ou sature au moins une enveloppe : la boucle se termine.
+  while (aRepartir > 0 && actifs.length > 0) {
+    const parts = repartirAuProrata_(aRepartir, actifs.map((i) => postes[i].budget));
+    aRepartir = 0;
+    actifs.forEach((i, rang) => {
+      const absorbe = Math.min(parts[rang], capacites[i] - recus[i]);
+      recus[i] += absorbe;
+      aRepartir += parts[rang] - absorbe;
+    });
+    actifs = actifs.filter((i) => recus[i] < capacites[i]);
+  }
+  const cedes = repartirAuProrata_(total - aRepartir, depassements);
+  return {
+    parPoste: postes.map((poste, i) => ({ recu: recus[i], cede: cedes[i] })),
+    nonCouvert: aRepartir
+  };
+}
+
+/**
+ * Partage un montant entier au prorata de poids, sans perte de centime
+ * (méthode du plus fort reste).
+ * @param {number} montant Montant en centimes (≥ 0).
+ * @param {number[]} poids Poids positifs ou nuls.
+ * @return {number[]} Parts entières, de somme égale au montant (zéros si poids nuls).
+ */
+function repartirAuProrata_(montant, poids) {
+  const totalPoids = poids.reduce((somme, valeur) => somme + valeur, 0);
+  if (totalPoids === 0) return poids.map(() => 0);
+  const exactes = poids.map((valeur) => (montant * valeur) / totalPoids);
+  const parts = exactes.map(Math.floor);
+  let reste = montant - parts.reduce((somme, part) => somme + part, 0);
+  exactes.map((valeur, i) => ({ i, fraction: valeur - parts[i] }))
+    .sort((a, b) => b.fraction - a.fraction || a.i - b.i)
+    .forEach(({ i }) => {
+      if (reste > 0) { parts[i] += 1; reste -= 1; }
+    });
+  return parts;
 }
 
 /**

@@ -298,7 +298,7 @@ function apiGetSuiviBudgets(parametres) {
   return executerApi_(null, () => {
     const forcer = Boolean(parametres && parametres.forcer);
     // CONFIG.BUDGET fait partie de la clé : un budget modifié et redéployé est pris en compte aussitôt.
-    return lireAvecCache_(`budgets|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
+    return lireAvecCache_(`budgets-ventiles|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
       const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
       const suivi = calculerSuiviBudgets_(operations, CONFIG.BUDGET.ENVELOPPES, listes.EXERCICE.valeurs,
         listes.CATEGORIE.valeurs, { exercice: CONFIG.BUDGET.EXERCICE, seuilAlerte: CONFIG.BUDGET.SEUIL_ALERTE_POURCENT });

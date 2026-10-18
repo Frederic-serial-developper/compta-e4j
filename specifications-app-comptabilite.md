@@ -368,6 +368,7 @@ Tableau croisé : catégories en lignes, exercices en colonnes, soldes dans les 
 - Statut : « Dans le budget », « Bientôt atteint » (part ≥ `CONFIG.BUDGET.SEUIL_ALERTE_POURCENT`) ou « Dépassé ».
 - Tuiles de total : budget, consommé, reste.
 - Une catégorie d'enveloppe absente de la liste de choix est signalée par un avertissement.
+- Interrupteur **« Reporter les dépassements sur les autres enveloppes »** (désactivé par défaut) : le dépassement des enveloppes dépassées est réparti sur les enveloppes non dépassées **au prorata de leur budget**. Une enveloppe n'absorbe jamais plus que son reste ; l'excédent est réparti à nouveau sur celles qui ont encore de la marge. La part reçue apparaît **hachurée** dans la jauge ; une enveloppe dont le dépassement est entièrement reporté affiche « Dépassement reporté ». Si les marges ne suffisent pas, un bandeau indique le montant non couvert, qui reste sur les enveloppes dépassées. Les tuiles de total ne changent pas.
 
 ---
 

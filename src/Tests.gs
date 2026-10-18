@@ -18,7 +18,8 @@ function lancerTests() {
     testerComptesSansOperation_, testerDetailNonRapprochees_, testerLignesInvalidesIgnorees_,
     testerSyntheseCategorieVide_, testerSyntheseTotaux_, testerComparaisonExercicePrecedent_,
     testerVueCroisee_, testerListerAnnees_, testerSyntheseParAnnee_, testerVueCroiseeParAnnee_,
-    testerSuiviBudgets_, testerStatutsBudget_, testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
+    testerSuiviBudgets_, testerStatutsBudget_, testerVentilationBudgets_, testerRepartitionProrata_,
+    testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
     testerDates_, testerMontants_, testerLongueurs_, testerNeutralisationFormules_, testerCentimes_
   ];
   const echecs = [];
@@ -240,8 +241,10 @@ function testerSuiviBudgets_() {
   const suivi = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
     ['2025', '2026'], ['Cotisations', 'Achats jeux'], { exercice: '', seuilAlerte: 80 });
   verifierEgal_(suivi.exercice, '2026', 'Exercice par défaut = dernier de la liste');
-  verifierEgal_(suivi.lignes[0], { categorie: 'Achats jeux', budget: 300, consomme: 40.49, reste: 259.51,
+  const { ventilation, ...ligne } = suivi.lignes[0];
+  verifierEgal_(ligne, { categorie: 'Achats jeux', budget: 300, consomme: 40.49, reste: 259.51,
     pourcentage: 13.5, nbOperations: 3, statut: 'OK' }, 'Consommé = dépenses − remboursements de l\'exercice');
+  verifierEgal_([ventilation.recu, ventilation.cede, ventilation.consomme], [0, 0, 40.49], 'Aucun dépassement à ventiler');
   verifierEgal_(suivi.categoriesHorsListe, [], 'Catégorie connue');
   const autre = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
     ['2025', '2026'], ['Achats jeux'], { exercice: '2025', seuilAlerte: 80 });
@@ -262,6 +265,41 @@ function testerStatutsBudget_() {
   verifierEgal_([depasse.statut, depasse.reste], ['DEPASSE', -5.49], 'Budget dépassé, reste négatif');
   verifierEgal_(suivre([100, 50]).totaux, { categorie: '', budget: 150, consomme: 45.49, reste: 104.51,
     pourcentage: 30.3, nbOperations: 2, statut: 'OK' }, 'Totaux de toutes les enveloppes');
+}
+
+function testerVentilationBudgets_() {
+  // Consommés : Achats jeux 45,49 € ; Animations 30 € ; Divers 10 €.
+  const operations = jeuOperations_().concat([
+    operationTest_({ ligne: 7, centimes: -3000, categorie: 'Animations' }),
+    operationTest_({ ligne: 8, centimes: -1000, categorie: 'Divers' })
+  ]);
+  const suivre = (montants) => calculerSuiviBudgets_(operations,
+    ['Achats jeux', 'Animations', 'Divers'].map((categorie, i) => ({ categorie, montant: montants[i] })),
+    ['2025', '2026'], ['Achats jeux', 'Animations', 'Divers'], { exercice: '', seuilAlerte: 80 });
+  const extraire = (suivi) => suivi.lignes.map(({ ventilation }) =>
+    [ventilation.recu, ventilation.cede, ventilation.consomme, ventilation.statut]);
+  // Dépassement de 15,49 € réparti 100/300 et 200/300 sur Animations et Divers.
+  const prorata = suivre([30, 100, 200]);
+  verifierEgal_(extraire(prorata), [[0, 15.49, 30, 'ALERTE'], [5.16, 0, 35.16, 'OK'], [10.33, 0, 20.33, 'OK']],
+    'Dépassement réparti au prorata des budgets, sans perte de centime');
+  verifierEgal_(prorata.lignes[0].statut, 'DEPASSE', 'Statut sans ventilation inchangé');
+  verifierEgal_(prorata.depassementNonCouvert, 0, 'Dépassement entièrement couvert');
+  // Animations (marge 2 €) est saturée : le reste du dépassement va sur Divers.
+  const plafond = suivre([30, 32, 200]);
+  verifierEgal_(extraire(plafond), [[0, 15.49, 30, 'ALERTE'], [2, 0, 32, 'ALERTE'], [13.49, 0, 23.49, 'OK']],
+    'Une enveloppe n\'absorbe pas plus que son reste');
+  // Marges totales (1 € + 1 €) insuffisantes : 13,49 € restent sur l'enveloppe dépassée.
+  const insuffisant = suivre([30, 31, 11]);
+  verifierEgal_(extraire(insuffisant), [[0, 2, 43.49, 'DEPASSE'], [1, 0, 31, 'ALERTE'], [1, 0, 11, 'ALERTE']],
+    'Dépassement partiellement couvert');
+  verifierEgal_(insuffisant.depassementNonCouvert, 13.49, 'Part non couverte signalée');
+  verifierEgal_(insuffisant.totaux.consomme, 85.49, 'Totaux inchangés par la ventilation');
+}
+
+function testerRepartitionProrata_() {
+  verifierEgal_(repartirAuProrata_(100, [1, 1, 1]), [34, 33, 33], 'Plus fort reste, premier servi à égalité');
+  verifierEgal_(repartirAuProrata_(7, [0, 0]), [0, 0], 'Poids nuls');
+  verifierEgal_(repartirAuProrata_(1549, [100, 200]), [516, 1033], 'Prorata exact au centime');
 }
 
 /* === Validation de la saisie ============================================= */

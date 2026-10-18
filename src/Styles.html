@@ -423,11 +423,48 @@
     gap: var(--gap-sm);
   }
   .enveloppe__chiffres { font-size: var(--taille-sous-titre); }
-  .jauge { height: 10px; border-radius: var(--radius-pilule); background: var(--surface-2); overflow: hidden; }
-  .jauge__remplissage { height: 100%; border-radius: var(--radius-pilule); transition: width var(--transition); }
+  .jauge { display: flex; height: 10px; border-radius: var(--radius-pilule); background: var(--surface-2); overflow: hidden; }
+  .jauge__remplissage { height: 100%; transition: width var(--transition); }
   .jauge__remplissage--ok { background: var(--success); }
   .jauge__remplissage--alerte { background: var(--warning); }
   .jauge__remplissage--depasse { background: var(--danger); }
+  /* Part reçue des dépassements d'autres enveloppes : hachures dans la couleur du statut */
+  .jauge__remplissage--ventile {
+    background: repeating-linear-gradient(-45deg, var(--couleur-jauge) 0 3px, transparent 3px 6px);
+  }
+  .jauge__remplissage--ventile.jauge__remplissage--ok { --couleur-jauge: var(--success); }
+  .jauge__remplissage--ventile.jauge__remplissage--alerte { --couleur-jauge: var(--warning); }
+  .jauge__remplissage--ventile.jauge__remplissage--depasse { --couleur-jauge: var(--danger); }
+  .enveloppe__ventilation { font-size: var(--taille-sous-titre); color: var(--text-muted); }
+
+  /* Interrupteur (case à cocher role="switch") */
+  .interrupteur input {
+    -webkit-appearance: none;
+    appearance: none;
+    flex-shrink: 0;
+    position: relative;
+    width: 40px;
+    height: 22px;
+    margin: 0;
+    border-radius: var(--radius-pilule);
+    background: var(--surface-2);
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+  .interrupteur input::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform var(--transition), background var(--transition);
+  }
+  .interrupteur input:checked { background: var(--primary); }
+  .interrupteur input:checked::before { transform: translateX(18px); background: var(--text); }
+  .interrupteur input:focus-visible { outline: 2px solid var(--primary-texte); outline-offset: 2px; }
 
   /* === Pied de page ===================================================== */
   .pied {

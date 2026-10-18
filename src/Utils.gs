@@ -150,6 +150,19 @@
  * @property {number} pourcentage Part consommée (peut dépasser 100).
  * @property {number} nbOperations
  * @property {string} statut 'OK', 'ALERTE' (seuil atteint) ou 'DEPASSE'.
+ * @property {VentilationBudget} [ventilation] Absente sur la ligne de total.
+ */
+
+/**
+ * Ligne du suivi budgétaire après report des dépassements sur les autres
+ * enveloppes, au prorata de leur budget (montants en euros).
+ * @typedef {Object} VentilationBudget
+ * @property {number} recu Part des dépassements d'autres enveloppes absorbée.
+ * @property {number} cede Part du dépassement de l'enveloppe reportée sur les autres.
+ * @property {number} consomme Consommé + reçu − cédé.
+ * @property {number} reste
+ * @property {number} pourcentage
+ * @property {string} statut
  */
 
 /**
@@ -157,7 +170,8 @@
  * @typedef {Object} SuiviBudgets
  * @property {string} exercice Exercice suivi.
  * @property {LigneBudget[]} lignes Une ligne par enveloppe, dans l'ordre de CONFIG.
- * @property {LigneBudget} totaux Ligne de total (categorie = '').
+ * @property {LigneBudget} totaux Ligne de total (categorie = ''), identique avec ou sans ventilation.
+ * @property {number} depassementNonCouvert Dépassements que les autres enveloppes ne peuvent absorber.
  * @property {string[]} categoriesHorsListe Catégories du budget absentes de la liste de choix.
  * @property {string} [miseAJour] Horodatage du calcul.
  * @property {string} [avertissement] Lignes ignorées ou catégories inconnues, le cas échéant.
