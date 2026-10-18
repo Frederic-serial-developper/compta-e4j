@@ -52,9 +52,10 @@ La ligne 1 contient les en-têtes. Chaque ligne suivante est une opération.
 
 Les valeurs autorisées sont **paramétrées dans le Sheet, par la validation de données de chaque colonne**. L'application ne maintient aucune liste en dur.
 
-1. **Source de référence** : lecture de la règle de validation de la colonne (`Range.getDataValidation()`, sur la première cellule de données), de type « liste d'éléments » (`VALUE_IN_LIST`) ou « liste à partir d'une plage » (`VALUE_IN_RANGE`) — on lit alors la plage référencée.
+1. **Source de référence** : lecture de la règle de validation de la colonne (`Range.getDataValidation()`, sur la première cellule de données), de type « liste d'éléments » (`VALUE_IN_LIST`) ou « liste à partir d'une plage » (`VALUE_IN_RANGE`) — on lit alors la plage référencée. Si la feuille est un **tableau** Google Sheets, le menu déroulant est le type de la colonne, invisible pour `getDataValidation()` : il est lu via le service avancé Sheets (`Spreadsheets.get`, `tables[].columnProperties[].dataValidationRule`).
 2. **Ordre** : les valeurs sont proposées **dans l'ordre défini dans la validation** (pas de tri par l'application).
-3. **Repli** (validation absente ou illisible) : valeurs distinctes non vides déjà présentes dans la colonne, triées alphabétiquement, et un avertissement est affiché au trésorier (« La colonne X n'a pas de liste de choix paramétrée »).
+3. **Pas de lecture des données** : les opérations ne sont jamais parcourues pour en déduire les valeurs ; seuls la ligne d'en-tête et la règle de validation sont lus.
+4. **Validation absente ou illisible** : la liste est vide (aucune saisie possible pour ce champ) et un avertissement est affiché au trésorier (« La colonne X n'a pas de liste de choix paramétrée »).
 
 **Exercice** : il n'existe pas de règle de calcul à partir de la date ; l'exercice est toujours choisi dans la liste. La **valeur par défaut** (saisie et synthèse) est **la dernière valeur de la liste de choix**.
 

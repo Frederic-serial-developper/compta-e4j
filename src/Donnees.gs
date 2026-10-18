@@ -5,8 +5,7 @@
  *         leur en-tête, lit les opérations et les listes de choix, ajoute une
  *         ligne, gère le cache et le Journal.
  *  Fonctions principales : ouvrirClasseur_, lireDonnees_, lireOperations_,
- *         lireListesDeChoix_, lireValeursDistinctes_,
- *         listerColonnesManquantes_, ajouterLigneOperation_, lireAvecCache_,
+ *         lireListesDeChoix_, listerColonnesManquantes_, ajouterLigneOperation_, lireAvecCache_,
  *         invaliderCache_, ecrireJournal_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
@@ -109,37 +108,82 @@ function estVrai_(valeur) {
   return ['vrai', 'true', 'oui'].includes(normaliserLibelle_(valeur));
 }
 
-/**
- * Valeurs distinctes non vides d'une colonne des opérations, triées.
- * @param {string} cle Clé de CONFIG.COLONNES.
- * @return {string[]} Valeurs triées alphabétiquement.
- */
-function lireValeursDistinctes_(cle) {
-  const { index, lignes } = lireFeuilleOperations_();
-  const valeurs = new Set(lignes.map((ligne) => texte_(ligne[index[cle]])).filter((v) => v !== ''));
-  return Array.from(valeurs).sort((a, b) => a.localeCompare(b, CONFIG.APP.LOCALE));
-}
-
 /* === Listes de choix ===================================================== */
 
 /**
  * Lit les listes de choix paramétrées dans la validation de données des
- * colonnes (ordre conservé). À défaut, reprend les valeurs déjà saisies.
- * Les règles de la première ligne de données sont lues en un seul appel.
+ * colonnes (menu déroulant, ordre conservé). Les opérations ne sont pas lues :
+ * seuls la ligne d'en-tête et les règles de la première ligne de données le sont
+ * (ou, pour une colonne de tableau, son type « Menu déroulant »).
+ * Une colonne sans liste paramétrée renvoie une liste vide.
  * @return {Object<string, {valeurs: string[], estParametree: boolean}>}
  *     Une entrée par clé de CONFIG.SAISIE.CHAMPS_A_LISTE.
  */
 function lireListesDeChoix_() {
-  const { feuille, index, largeur, premiereLigne } = lireFeuilleOperations_();
-  const regles = feuille.getRange(premiereLigne, 1, 1, Math.max(largeur, 1)).getDataValidations()[0];
+  const nomFeuille = CONFIG.FICHIER.FEUILLE_OPERATIONS;
+  const feuille = obtenirFeuille_(nomFeuille);
+  const ligneEnTete = CONFIG.FICHIER.LIGNE_EN_TETE;
+  const largeur = Math.max(feuille.getLastColumn(), 1);
+  const entetes = feuille.getRange(ligneEnTete, 1, 1, largeur).getValues()[0];
+  const index = indexerColonnes_(entetes, CONFIG.COLONNES, nomFeuille);
+  const regles = feuille.getRange(ligneEnTete + 1, 1, 1, largeur).getDataValidations()[0];
+  let menusDesTableaux = null;
   const listes = {};
   CONFIG.SAISIE.CHAMPS_A_LISTE.forEach((cle) => {
-    const valeurs = lireValeursDeValidation_(regles[index[cle]]);
-    listes[cle] = valeurs.length > 0
-      ? { valeurs, estParametree: true }
-      : { valeurs: lireValeursDistinctes_(cle), estParametree: false };
+    let valeurs = lireValeursDeValidation_(regles[index[cle]]);
+    if (valeurs.length === 0) {
+      // Colonne d'un tableau (Format > Convertir en tableau) : son menu déroulant
+      // n'est pas visible par getDataValidations, il est lu via l'API Sheets.
+      menusDesTableaux = menusDesTableaux || lireMenusDesTableaux_(feuille);
+      valeurs = menusDesTableaux[normaliserLibelle_(CONFIG.COLONNES[cle])] || [];
+    }
+    listes[cle] = { valeurs, estParametree: valeurs.length > 0 };
   });
   return listes;
+}
+
+/**
+ * Lit les menus déroulants des colonnes des tableaux d'une feuille, via le
+ * service avancé Sheets (activé dans appsscript.json). Un échec n'interrompt
+ * pas le traitement : les listes concernées restent vides.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} feuille Feuille contenant les tableaux.
+ * @return {Object<string, string[]>} Valeurs par nom de colonne normalisé.
+ */
+function lireMenusDesTableaux_(feuille) {
+  const menus = {};
+  try {
+    const reponse = Sheets.Spreadsheets.get(CONFIG.FICHIER.SPREADSHEET_ID,
+      { fields: 'sheets(properties.sheetId,tables(columnProperties))' });
+    const donneesFeuille = (reponse.sheets || [])
+      .find((onglet) => onglet.properties.sheetId === feuille.getSheetId());
+    ((donneesFeuille && donneesFeuille.tables) || []).forEach((tableau) => {
+      (tableau.columnProperties || []).forEach((colonne) => {
+        const valeurs = lireValeursDeConditionApi_(colonne.dataValidationRule);
+        if (valeurs.length > 0) menus[normaliserLibelle_(colonne.columnName)] = valeurs;
+      });
+    });
+  } catch (erreur) {
+    console.warn(`Lecture des menus des tableaux impossible : ${erreur.message}`);
+  }
+  return menus;
+}
+
+/**
+ * Extrait les valeurs d'une règle de validation de l'API Sheets
+ * (liste d'éléments, ou plage référencée par une formule).
+ * @param {?Object} regle DataValidationRule de l'API Sheets.
+ * @return {string[]} Valeurs dans l'ordre de la règle, vide si non lisible.
+ */
+function lireValeursDeConditionApi_(regle) {
+  const condition = regle && regle.condition;
+  if (!condition) return [];
+  const elements = (condition.values || []).map((valeur) => valeur.userEnteredValue);
+  let valeurs = [];
+  if (condition.type === 'ONE_OF_LIST') valeurs = elements;
+  if (condition.type === 'ONE_OF_RANGE' && elements[0]) {
+    valeurs = [].concat(...ouvrirClasseur_().getRange(String(elements[0]).replace(/^=/, '')).getValues());
+  }
+  return valeurs.map(texte_).filter((valeur) => valeur !== '');
 }
 
 /**

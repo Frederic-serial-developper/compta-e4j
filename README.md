@@ -25,7 +25,7 @@ Spécifications : [specifications-app-comptabilite.md](specifications-app-compta
    *Alternative* : `clasp` avec un `.clasp.json` contenant `{"scriptId": "<ID du projet>", "rootDir": "src"}`, puis `clasp push`.
 3. Vérifier le bloc `CONFIG` en tête de `Code.gs` (ID du fichier, noms des feuilles et des colonnes) et y déclarer les personnes autorisées dans `UTILISATEURS` (`email`, `nom`, `role` : `Lecteur` ou `Trésorier`, `actif`).
 4. Dans le Sheet :
-   vérifier que les colonnes `Compte`, `Moyen`, `Exercice` et `Catégorie Bilan Financier` ont une **validation de données de type liste** (sinon un avertissement s'affiche pour le trésorier).
+   vérifier que les colonnes `Compte`, `Moyen`, `Exercice` et `Catégorie Bilan Financier` ont une **validation de données de type liste** ou, si la feuille est un tableau, le type de colonne **Menu déroulant** (sinon un avertissement s'affiche pour le trésorier).
 5. Partager le Sheet avec chaque personne : *Lecteur* pour le rôle `Lecteur`, *Éditeur* pour le rôle `Trésorier`.
 6. Dans l'éditeur, exécuter `lancerTests` : le journal doit afficher `18/18 tests réussis.`
 7. **Déployer > Nouveau déploiement > Application Web** — Exécuter en tant que : *l'utilisateur qui accède à l'application* ; Accès : *tout utilisateur disposant d'un compte Google*. Indiquer un numéro de version et une description.
