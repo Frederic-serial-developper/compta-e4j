@@ -16,7 +16,7 @@ const CONFIG = deepFreeze_({
 
   /* --- 2. Fichier et feuilles ------------------------------------------- */
   FICHIER: {
-    SPREADSHEET_ID: '1hp_474UVf-2O1nBfwCjAjV6K-zg8bD8HW9IhqancPzg', // ID du Google Sheet (partie de l'URL entre /d/ et /edit)
+    SPREADSHEET_ID: '1brIcJM7JChCjKEZyi5Fe83pAwsRigaOeX2mKYDW2cZI', // ID du Google Sheet (partie de l'URL entre /d/ et /edit)
     FEUILLE_OPERATIONS: 'Opérations',          // Feuille des opérations
     FEUILLE_JOURNAL: 'Journal',                // Feuille de journalisation (créée automatiquement si absente)
     LIGNE_EN_TETE: 1                           // Numéro de la ligne contenant les en-têtes (les données commencent juste après)
