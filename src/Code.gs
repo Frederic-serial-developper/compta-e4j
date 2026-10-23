@@ -19,6 +19,7 @@ const CONFIG = deepFreeze_({
     SPREADSHEET_ID: '1brIcJM7JChCjKEZyi5Fe83pAwsRigaOeX2mKYDW2cZI', // ID du Google Sheet (partie de l'URL entre /d/ et /edit)
     FEUILLE_OPERATIONS: 'Opérations',          // Feuille des opérations
     FEUILLE_JOURNAL: 'Journal',                // Feuille de journalisation (créée automatiquement si absente)
+    FEUILLE_BUDGET: 'Budget',                  // Feuille des enveloppes du budget prévisionnel (section 5)
     LIGNE_EN_TETE: 1                           // Numéro de la ligne contenant les en-têtes (les données commencent juste après)
   },
 
@@ -57,21 +58,17 @@ const CONFIG = deepFreeze_({
   COLONNES_JOURNAL: ['Horodatage', 'Email', 'Action', 'Détail'], // En-têtes écrits à la création du Journal
 
   /* --- 5. Budget prévisionnel ------------------------------------------- */
-  //  Enveloppes de dépenses suivies dans l'onglet « Budgets ». Consommé d'une
-  //  enveloppe = dépenses − recettes (remboursements) de la catégorie sur l'exercice.
+  //  Enveloppes de dépenses suivies dans l'onglet « Budgets », lues dans la
+  //  feuille FICHIER.FEUILLE_BUDGET : une ligne par enveloppe, catégorie
+  //  (valeur exacte de la liste « Catégorie Bilan Financier ») et montant en euros (> 0).
+  //  Consommé d'une enveloppe = dépenses − recettes (remboursements) de la catégorie sur l'exercice.
   BUDGET: {
     EXERCICE: '',                          // Exercice suivi ; vide = dernier exercice de la liste de choix
-    SEUIL_ALERTE_POURCENT: 80,             // Part consommée (%) à partir de laquelle l'enveloppe est signalée
-    ENVELOPPES: [
-      // categorie : valeur exacte de la liste « Catégorie Bilan Financier » ; montant : budget en euros (> 0).
-      { categorie: 'Assurance', montant: 200 },
-      { categorie: 'Achat Jeux', montant: 1000 },
-      { categorie: 'Convivialité', montant: 1000 },
-      { categorie: 'Fournitures', montant: 500 },
-      { categorie: 'Frais bancaires', montant: 50 },
-      { categorie: 'Festival Dépense', montant: 2000 },
-      { categorie: 'Divers', montant: 200 }
-    ]
+    SEUIL_ALERTE_POURCENT: 80              // Part consommée (%) à partir de laquelle l'enveloppe est signalée
+  },
+  COLONNES_BUDGET: {                       // En-têtes exacts du tableau de la feuille Budget
+    CATEGORIE: 'Catégorie',
+    MONTANT: 'Montant Prévu'
   },
 
   /* --- 6. Rôles --------------------------------------------------------- */
@@ -138,6 +135,7 @@ const CONFIG = deepFreeze_({
     PARAMETRE_INVALIDE: 'Paramètre de configuration invalide : {parametre}.',
     LISTE_NON_PARAMETREE: 'La colonne {colonne} n\'a pas de liste de choix paramétrée.',
     LIGNES_IGNOREES: '{nombre} ligne(s) ignorée(s) : montant invalide, lignes {lignes}.',
+    BUDGET_LIGNES_IGNOREES: 'Feuille {feuille} : {nombre} ligne(s) ignorée(s) (catégorie vide ou en double, montant non numérique ou ≤ 0), lignes {lignes}.',
     BUDGET_CATEGORIE_INCONNUE: 'Catégorie(s) du budget absente(s) de la liste de choix : {categories}.',
     ERREUR_INATTENDUE: 'Une erreur est survenue. Réessayez ou contactez le trésorier.'
   }
@@ -295,24 +293,33 @@ function apiGetSyntheseTousExercices(parametres) {
 }
 
 /**
- * Suivi des enveloppes du budget prévisionnel (CONFIG.BUDGET) sur l'exercice suivi.
+ * Suivi des enveloppes du budget prévisionnel (feuille Budget) sur l'exercice suivi.
  * @param {{forcer: boolean}} parametres forcer = ignorer le cache.
  * @return {ReponseApi} data : {@link SuiviBudgets}.
  */
 function apiGetSuiviBudgets(parametres) {
   return executerApi_(null, () => {
     const forcer = Boolean(parametres && parametres.forcer);
-    // CONFIG.BUDGET fait partie de la clé : un budget modifié et redéployé est pris en compte aussitôt.
+    // CONFIG.BUDGET fait partie de la clé : un paramètre modifié et redéployé est pris en compte aussitôt.
     return lireAvecCache_(`budgets-ventiles|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
       const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
-      const suivi = calculerSuiviBudgets_(operations, CONFIG.BUDGET.ENVELOPPES, listes.EXERCICE.valeurs,
+      const budget = lireEnveloppesBudget_();
+      const suivi = calculerSuiviBudgets_(operations, budget.enveloppes, listes.EXERCICE.valeurs,
         listes.CATEGORIE.valeurs, { exercice: CONFIG.BUDGET.EXERCICE, seuilAlerte: CONFIG.BUDGET.SEUIL_ALERTE_POURCENT });
       const complements = completerReponseDonnees_(lignesIgnorees);
-      if (suivi.categoriesHorsListe.length > 0) {
-        const message = remplacerVariables_(CONFIG.MESSAGES.BUDGET_CATEGORIE_INCONNUE,
-          { categories: suivi.categoriesHorsListe.join(', ') });
-        complements.avertissement = [complements.avertissement, message].filter(Boolean).join(' ');
+      const messages = [complements.avertissement];
+      if (budget.lignesIgnorees.length > 0) {
+        messages.push(remplacerVariables_(CONFIG.MESSAGES.BUDGET_LIGNES_IGNOREES, {
+          feuille: CONFIG.FICHIER.FEUILLE_BUDGET,
+          nombre: budget.lignesIgnorees.length,
+          lignes: budget.lignesIgnorees.join(', ')
+        }));
       }
+      if (suivi.categoriesHorsListe.length > 0) {
+        messages.push(remplacerVariables_(CONFIG.MESSAGES.BUDGET_CATEGORIE_INCONNUE,
+          { categories: suivi.categoriesHorsListe.join(', ') }));
+      }
+      complements.avertissement = messages.filter(Boolean).join(' ');
       return Object.assign(suivi, complements);
     });
   });
@@ -472,15 +479,10 @@ function verifierParametres_() {
   const { SAISIE, AFFICHAGE, BUDGET } = CONFIG;
   const clesColonnes = Object.keys(CONFIG.COLONNES);
   const emails = CONFIG.UTILISATEURS.map((personne) => texte_(personne.email).toLowerCase());
-  const categoriesBudget = BUDGET.ENVELOPPES.map((enveloppe) => texte_(enveloppe.categorie));
   const controles = {
     'UTILISATEURS (email)': emails.every((email) => /^[^\s@]+@[^\s@]+$/.test(email))
       && new Set(emails).size === emails.length,
     'UTILISATEURS (role)': CONFIG.UTILISATEURS.every((personne) => normaliserRole_(personne.role) !== null),
-    'BUDGET.ENVELOPPES (categorie)': categoriesBudget.every((categorie) => categorie !== '')
-      && new Set(categoriesBudget).size === categoriesBudget.length,
-    'BUDGET.ENVELOPPES (montant)': BUDGET.ENVELOPPES.every((enveloppe) =>
-      typeof enveloppe.montant === 'number' && enveloppe.montant > 0),
     'BUDGET.SEUIL_ALERTE_POURCENT': typeof BUDGET.SEUIL_ALERTE_POURCENT === 'number'
       && BUDGET.SEUIL_ALERTE_POURCENT >= 0 && BUDGET.SEUIL_ALERTE_POURCENT <= 100,
     'AFFICHAGE.ONGLET_PAR_DEFAUT': ['BILAN', 'SYNTHESE', 'BUDGET', 'POINTAGE', 'AJOUT'].includes(AFFICHAGE.ONGLET_PAR_DEFAUT),

@@ -99,6 +99,7 @@ function calculerSyntheseParCategorie_(operations, categories, periodes, options
     periodePrecedente,
     lignes,
     totaux: totauxEnEuros_(totaux),
+    soldeGlobal: versEuros_(soldeGlobal_(operations)),
     nonRapprochees: compterNonRapprochees_(deLaPeriode)
   };
 }
@@ -127,7 +128,8 @@ function calculerVueCroisee_(operations, categories, periodes, regroupement = RE
       categorie,
       soldes: parPeriode.map((cumuls) => versEuros_(soldeDe_(cumuls.get(categorie))))
     })),
-    totaux: parPeriode.map((cumuls) => versEuros_(totaliserCategories_(cumuls).solde))
+    totaux: parPeriode.map((cumuls) => versEuros_(totaliserCategories_(cumuls).solde)),
+    soldeGlobal: versEuros_(soldeGlobal_(operations))
   };
 }
 
@@ -142,7 +144,7 @@ const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DE
  * Chaque ligne porte aussi sa version « ventilée » (voir ventilerDepassements_),
  * que le navigateur affiche à la demande.
  * @param {Operation[]} operations Opérations lues.
- * @param {{categorie: string, montant: number}[]} enveloppes Budgets en euros (CONFIG.BUDGET.ENVELOPPES).
+ * @param {{categorie: string, montant: number}[]} enveloppes Budgets en euros (feuille Budget).
  * @param {string[]} exercices Exercices de la liste de choix, dans l'ordre.
  * @param {string[]} categories Catégories de la liste de choix.
  * @param {{exercice: string, seuilAlerte: number}} options exercice vide = dernier
@@ -300,6 +302,15 @@ function periodeDe_(operation, regroupement) {
  */
 function filtrerParPeriode_(operations, regroupement, periode) {
   return operations.filter((operation) => periodeDe_(operation, regroupement) === periode);
+}
+
+/**
+ * Solde actuel, tous comptes et toutes périodes confondus.
+ * @param {Operation[]} operations Opérations lues.
+ * @return {number} Solde en centimes.
+ */
+function soldeGlobal_(operations) {
+  return operations.reduce((somme, operation) => somme + operation.centimes, 0);
 }
 
 /* === Fonctions internes : filtres et clés ================================ */

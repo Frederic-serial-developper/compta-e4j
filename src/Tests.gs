@@ -15,7 +15,7 @@
 function lancerTests() {
   const tests = [
     testerSommesRapprocheNonRapproche_, testerMontantsNegatifsEtTotal_, testerFiltresBilan_,
-    testerComptesSansOperation_, testerDetailNonRapprochees_, testerLignesInvalidesIgnorees_,
+    testerComptesSansOperation_, testerDetailNonRapprochees_, testerLignesInvalidesIgnorees_, testerFeuilleBudget_,
     testerSyntheseCategorieVide_, testerSyntheseTotaux_, testerComparaisonExercicePrecedent_,
     testerVueCroisee_, testerListerAnnees_, testerSyntheseParAnnee_, testerVueCroiseeParAnnee_,
     testerSuiviBudgets_, testerStatutsBudget_, testerVentilationBudgets_, testerRepartitionProrata_,
@@ -177,6 +177,29 @@ function testerLignesInvalidesIgnorees_() {
 
 /* === Synthèse par catégorie ============================================== */
 
+/** Tableau placé en B3 : titre au-dessus, ligne de total après une ligne vide. */
+function testerFeuilleBudget_() {
+  const valeurs = [
+    ['', 'Budget 2026', ''],
+    ['', '', ''],
+    ['', ' catégorie ', 'Montant prévu'],
+    ['', 'Assurance', 200],
+    ['', 'Divers', '50 €'],
+    ['', '', 30],
+    ['', 'Assurance', 100],
+    ['', 'Fournitures', 0],
+    ['', 'Achat Jeux', 1000],
+    ['', '', ''],
+    ['', 'Total', 1200]
+  ];
+  verifierEgal_(analyserFeuilleBudget_(valeurs, 'Budget'), {
+    enveloppes: [{ categorie: 'Assurance', montant: 200 }, { categorie: 'Achat Jeux', montant: 1000 }],
+    lignesIgnorees: [5, 6, 7, 8]
+  }, 'Enveloppes lues, lignes invalides signalées, arrêt à la ligne vide');
+  verifierErreur_(() => analyserFeuilleBudget_([['Catégorie', 'Montant']], 'Budget'), 'Montant Prévu',
+    'En-tête manquant signalé');
+}
+
 function testerSyntheseCategorieVide_() {
   const synthese = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations', 'Achats jeux', 'Dons'],
     ['2025', '2026'], { periode: '2026', comparer: false });
@@ -209,6 +232,7 @@ function testerComparaisonExercicePrecedent_() {
   const premier = calculerSyntheseParCategorie_(jeuOperations_(), ['Cotisations'], ['2025', '2026'],
     { periode: '2025', comparer: true });
   verifierEgal_(premier.periodePrecedente, null, 'Pas de N-1 pour le premier exercice');
+  verifierEgal_([premier.soldeGlobal, synthese.soldeGlobal], [104.52, 104.52], 'Solde global indépendant de l\'exercice');
 }
 
 function testerVueCroisee_() {
@@ -216,6 +240,7 @@ function testerVueCroisee_() {
   verifierEgal_(vue.periodes, ['2025', '2026'], 'Colonnes exercices');
   verifierEgal_(vue.lignes[0], { categorie: 'Cotisations', soldes: [50, 100] }, 'Soldes Cotisations');
   verifierEgal_(vue.totaux, [50, 54.52], 'Totaux par exercice');
+  verifierEgal_(vue.soldeGlobal, 104.52, 'Solde global de la vue croisée');
 }
 
 /** Exercice 2026 commencé en 2025 (ligne 7) et opération sans date (ligne 8). */

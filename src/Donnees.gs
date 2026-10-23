@@ -2,11 +2,11 @@
  *  Donnees.gs — Accès aux données du Google Sheet
  *
  *  Rôle : seul fichier qui lit et écrit le classeur. Repère les colonnes par
- *         leur en-tête, lit les opérations et les listes de choix, ajoute une
+ *         leur en-tête, lit les opérations, les listes de choix et le budget, ajoute une
  *         ligne, coche les opérations pointées, gère le cache et le Journal.
  *  Fonctions principales : ouvrirClasseur_, lireDonnees_, lireOperations_,
- *         lireListesDeChoix_, listerColonnesManquantes_, ajouterLigneOperation_,
- *         cocherRapprochees_, lireAvecCache_, invaliderCache_, ecrireJournal_.
+ *         lireListesDeChoix_, lireEnveloppesBudget_, listerColonnesManquantes_,
+ *         ajouterLigneOperation_, cocherRapprochees_, lireAvecCache_, invaliderCache_, ecrireJournal_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -21,6 +21,13 @@ let donneesMemorisees_ = null;
 
 /** Version du cache, mémorisée le temps d'une exécution. */
 let versionCacheMemorisee_ = null;
+
+/**
+ * Format des réponses mises en cache, préfixé à la version : l'incrémenter
+ * quand la forme d'une réponse api* change, pour ne pas servir d'anciennes
+ * entrées incomplètes après un déploiement.
+ */
+const FORMAT_CACHE_ = 2;
 
 /**
  * Taille (en caractères) des morceaux d'une valeur volumineuse en cache :
@@ -213,6 +220,53 @@ function valeursDesListes_(listes) {
   const resultat = {};
   Object.keys(listes).forEach((cle) => { resultat[cle] = listes[cle].valeurs; });
   return resultat;
+}
+
+/* === Budget prévisionnel ================================================ */
+
+/**
+ * Lit les enveloppes du budget dans la feuille CONFIG.FICHIER.FEUILLE_BUDGET.
+ * @return {{enveloppes: {categorie: string, montant: number}[], lignesIgnorees: number[]}}
+ *     Montants en euros ; numéros des lignes invalides à signaler.
+ * @throws {Error} Si la feuille ou un en-tête est introuvable.
+ */
+function lireEnveloppesBudget_() {
+  const nomFeuille = CONFIG.FICHIER.FEUILLE_BUDGET;
+  return analyserFeuilleBudget_(obtenirFeuille_(nomFeuille).getDataRange().getValues(), nomFeuille);
+}
+
+/**
+ * Extrait les enveloppes du tableau de la feuille Budget. La ligne d'en-tête
+ * est la première qui contient tous les en-têtes de CONFIG.COLONNES_BUDGET
+ * (le tableau peut donc être placé n'importe où) ; la lecture s'arrête à la
+ * première ligne vide qui suit. Une ligne à la catégorie vide ou déjà vue, ou
+ * au montant non numérique ou ≤ 0, est ignorée.
+ * @param {Array<Array<*>>} valeurs Contenu de la feuille.
+ * @param {string} nomFeuille Nom de la feuille (pour le message d'erreur).
+ * @return {{enveloppes: {categorie: string, montant: number}[], lignesIgnorees: number[]}}
+ * @throws {Error} Erreur métier si les en-têtes sont introuvables.
+ */
+function analyserFeuilleBudget_(valeurs, nomFeuille) {
+  const libelles = Object.values(CONFIG.COLONNES_BUDGET).map(normaliserLibelle_);
+  const positionEnTete = valeurs.findIndex((ligne) =>
+    libelles.every((libelle) => ligne.map(normaliserLibelle_).includes(libelle)));
+  // Sans ligne d'en-tête complète, indexerColonnes_ désigne l'en-tête manquant.
+  const index = indexerColonnes_(valeurs[Math.max(positionEnTete, 0)] || [], CONFIG.COLONNES_BUDGET, nomFeuille);
+  const enveloppes = [];
+  const lignesIgnorees = [];
+  const vues = new Set();
+  for (let position = positionEnTete + 1; position < valeurs.length; position++) {
+    const categorie = texte_(valeurs[position][index.CATEGORIE]);
+    const montant = valeurs[position][index.MONTANT];
+    if (categorie === '' && texte_(montant) === '') break;
+    if (categorie === '' || vues.has(categorie) || typeof montant !== 'number' || !(montant > 0)) {
+      lignesIgnorees.push(position + 1);
+      continue;
+    }
+    vues.add(categorie);
+    enveloppes.push({ categorie, montant });
+  }
+  return { enveloppes, lignesIgnorees };
 }
 
 /* === Structure du classeur =============================================== */
@@ -485,10 +539,11 @@ function lireCacheVolumineux_(cle) {
  * ou une actualisation demandée).
  */
 function invaliderCache_() {
-  versionCacheMemorisee_ = String(Date.now());
+  const version = String(Date.now());
+  versionCacheMemorisee_ = `${FORMAT_CACHE_}.${version}`;
   donneesMemorisees_ = null;
   PropertiesService.getScriptProperties()
-    .setProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE, versionCacheMemorisee_);
+    .setProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE, version);
 }
 
 /**
@@ -497,8 +552,9 @@ function invaliderCache_() {
  */
 function lireVersionCache_() {
   if (versionCacheMemorisee_ === null) {
-    versionCacheMemorisee_ = PropertiesService.getScriptProperties()
+    const version = PropertiesService.getScriptProperties()
       .getProperty(CONFIG.TECHNIQUE.PROPRIETE_VERSION_CACHE) || '0';
+    versionCacheMemorisee_ = `${FORMAT_CACHE_}.${version}`;
   }
   return versionCacheMemorisee_;
 }

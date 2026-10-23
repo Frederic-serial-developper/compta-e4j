@@ -131,6 +131,7 @@
  * @property {?string} periodePrecedente null si pas de comparaison possible.
  * @property {LigneSynthese[]} lignes Triées par solde décroissant.
  * @property {{recettes: number, depenses: number, resultat: number, nbOperations: number}} totaux
+ * @property {number} soldeGlobal Solde actuel, tous comptes et toutes périodes confondus.
  * @property {{nombre: number, montant: number}} nonRapprochees
  */
 
@@ -141,6 +142,7 @@
  * @property {string[]} periodes Colonnes ('' = sans exercice ou sans date).
  * @property {{categorie: string, soldes: number[]}[]} lignes
  * @property {number[]} totaux Total par période.
+ * @property {number} soldeGlobal Solde actuel, tous comptes et toutes périodes confondus.
  */
 
 /**

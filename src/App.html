@@ -420,7 +420,8 @@
     const tuiles = creer('div', { classe: 'tuiles' }, [
       creerTuile('Recettes', synthese.totaux.recettes),
       creerTuile('Dépenses', -synthese.totaux.depenses),
-      creerTuile('Résultat', synthese.totaux.resultat, true)]);
+      creerTuile('Résultat', synthese.totaux.resultat, true),
+      creerTuile('Solde global actuel', synthese.soldeGlobal)]);
     $('synthese-contenu').replaceChildren(indicateur, tuiles, creerTableauSynthese(synthese), creerGraphique(synthese.lignes));
   }
 
@@ -550,6 +551,7 @@
       creer('caption', { classe: 'label legende-tableau', texte: `Soldes par catégorie et ${LIBELLES_REGROUPEMENT[vue.regroupement].colonnes}` }),
       creer('thead', {}, [entete]), creer('tbody', {}, lignes), creer('tfoot', {}, [total])]);
     $('synthese-contenu').replaceChildren(
+      creer('div', { classe: 'tuiles' }, [creerTuile('Solde global actuel', vue.soldeGlobal)]),
       creer('div', { classe: 'carte' }, [creer('div', { classe: 'tableau-defilant' }, [tableau])]));
   }
 
