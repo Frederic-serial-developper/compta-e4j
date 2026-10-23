@@ -1,6 +1,6 @@
 # Comptabilité de l'association — Application Google Apps Script
 
-Application web (Apps Script) pour consulter le bilan par compte, la synthèse par catégorie et le suivi du budget prévisionnel, et ajouter des opérations dans la feuille `Opérations`.
+Application web (Apps Script) pour consulter le bilan par compte, la synthèse par catégorie et le suivi du budget prévisionnel, ajouter des opérations dans la feuille `Opérations` et les pointer (rapprochement).
 Spécifications : [specifications-app-comptabilite.md](specifications-app-comptabilite.md). Charte graphique : [charte-graphique.md](charte-graphique.md).
 
 ## Contenu de `src/`
@@ -12,6 +12,7 @@ Spécifications : [specifications-app-comptabilite.md](specifications-app-compta
 | `Donnees.gs` | Lecture/écriture du Sheet, listes de choix, cache, Journal |
 | `Bilan.gs` | Calculs purs : bilan par compte, synthèse, vue croisée, suivi budgétaire |
 | `Operations.gs` | Validation d'une nouvelle opération |
+| `Pointage.gs` | Écran de pointage d'un compte et contrôle d'une demande de pointage |
 | `Utils.gs` | Outils (centimes, dates, réponses) et `@typedef` |
 | `Tests.gs` | Tests des fonctions métier : exécuter `lancerTests` |
 | `Index.html`, `Styles.html`, `App.html` | Interface (squelette, charte, JavaScript) |
@@ -27,7 +28,7 @@ Spécifications : [specifications-app-comptabilite.md](specifications-app-compta
 4. Dans le Sheet :
    vérifier que les colonnes `Compte`, `Moyen`, `Exercice` et `Catégorie Bilan Financier` ont une **validation de données de type liste** ou, si la feuille est un tableau, le type de colonne **Menu déroulant** (sinon un avertissement s'affiche pour le trésorier).
 5. Partager le Sheet avec chaque personne : *Lecteur* pour le rôle `Lecteur`, *Éditeur* pour le rôle `Trésorier`.
-6. Dans l'éditeur, exécuter `lancerTests` : le journal doit afficher `23/23 tests réussis.`
+6. Dans l'éditeur, exécuter `lancerTests` : le journal doit afficher `28/28 tests réussis.`
 7. **Déployer > Nouveau déploiement > Application Web** — Exécuter en tant que : *l'utilisateur qui accède à l'application* ; Accès : *tout utilisateur disposant d'un compte Google*. Indiquer un numéro de version et une description.
 8. Transmettre l'URL aux personnes autorisées (au premier accès, Google leur demande d'autoriser le script), puis dérouler les critères d'acceptation (§12 des spécifications).
 
@@ -39,4 +40,5 @@ La feuille `Journal` est créée automatiquement au premier ajout ou refus d'acc
 - Ajouter, retirer ou suspendre une personne = modifier `CONFIG.UTILISATEURS` puis **redéployer** une nouvelle version (Déployer > Gérer les déploiements > Modifier > Nouvelle version) : l'application publiée n'utilise que le code de la version déployée.
 - Budget prévisionnel : les enveloppes se déclarent dans `CONFIG.BUDGET.ENVELOPPES` (catégorie écrite exactement comme dans la liste de choix, montant en euros), puis redéployer. Une catégorie inconnue est signalée par un bandeau dans l'onglet « Budgets ».
 - Le fuseau horaire de `appsscript.json` doit rester identique à `CONFIG.APP.FUSEAU_HORAIRE`.
+- Pointage (onglet « Pointage », trésorier) : un compte ou « Tous les comptes » ; « + Nouvelle opération » ouvre le formulaire d'ajout sans perdre les cases cochées ; rien n'est écrit tant que « Valider le pointage » n'est pas cliqué ; la validation coche toutes les cases `Rapproché` demandées, ou aucune si une opération a changé dans le Sheet entre-temps. Le dépointage se fait dans le Sheet.
 - Les opérations sont ajoutées sur la première ligne vide après la dernière opération ; le format et la validation (cases à cocher) de la ligne précédente sont recopiés.

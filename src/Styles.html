@@ -466,6 +466,47 @@
   .interrupteur input:checked::before { transform: translateX(18px); background: var(--text); }
   .interrupteur input:focus-visible { outline: 2px solid var(--primary-texte); outline-offset: 2px; }
 
+  /* === Pointage ========================================================== */
+  .ligne-pointage {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pad-input);
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+  }
+  .ligne-pointage input { flex: none; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--success); cursor: pointer; }
+  .ligne-pointage__texte { flex: 1; min-width: 0; }
+  .ligne-pointage--cochee { border-left-color: var(--success); background: var(--success-bg); }
+  .tuile--equilibre { border-color: var(--success); }
+
+  /* Barre de validation : reste visible en bas de l'écran pendant le défilement de la liste */
+  .barre-validation {
+    position: sticky;
+    bottom: var(--pad-card);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--gap-sm);
+    border: 1px solid var(--primary);
+    font-size: var(--taille-sous-titre);
+  }
+  .barre-validation__actions { display: flex; gap: var(--gap-sm); margin-left: auto; }
+  .cta--compact { width: auto; padding: var(--gap-sm) var(--pad-card); }
+
+  .bouton-secondaire {
+    border: 1px solid var(--separateur);
+    border-radius: var(--radius-pilule);
+    padding: var(--gap-sm) var(--pad-card);
+    background: var(--surface-2);
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform var(--transition);
+  }
+  .bouton-secondaire:active { transform: var(--echelle-appui); }
+  .bouton-secondaire:disabled { opacity: 0.6; cursor: not-allowed; }
+  .filtres .bouton-secondaire { min-height: 44px; } /* Aligné sur les champs voisins */
+
   /* === Pied de page ===================================================== */
   .pied {
     display: flex;

@@ -44,18 +44,20 @@ function calculerSoldesParCompte_(operations, comptes, filtres) {
 /**
  * Opérations non rapprochées d'un compte, triées par date croissante.
  * @param {Operation[]} operations Opérations lues.
- * @param {string} compte Compte demandé.
+ * @param {?string} compte Compte demandé (null = tous les comptes).
  * @param {{exercice: string, dateFin: string}} filtres Mêmes filtres que le bilan.
  * @return {OperationAffichee[]} Opérations à afficher.
  */
 function listerNonRapprochees_(operations, compte, filtres) {
   return operations
-    .filter((operation) => operation.compte === compte && !operation.estRapproche
+    .filter((operation) => (compte === null || operation.compte === compte) && !operation.estRapproche
       && respecteFiltres_(operation, filtres))
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.ligne - b.ligne)
     .map((operation) => ({
       ligne: operation.ligne,
+      compte: operation.compte,
       date: operation.dateIso ? isoVersAffichage_(operation.dateIso) : '',
+      dateIso: operation.dateIso,
       qui: operation.qui,
       quoi: operation.quoi,
       moyen: operation.moyen,

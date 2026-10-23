@@ -47,10 +47,13 @@
  */
 
 /**
- * Opération envoyée au navigateur (détail des non rapprochées).
+ * Opération envoyée au navigateur (détail des non rapprochées, pointage).
  * @typedef {Object} OperationAffichee
  * @property {number} ligne
+ * @property {string} compte
  * @property {string} date Date au format d'affichage.
+ * @property {string} dateIso Date AAAA-MM-JJ ('' si absente), renvoyée lors du
+ *     pointage pour vérifier que l'opération n'a pas changé.
  * @property {string} qui
  * @property {string} quoi
  * @property {string} moyen
@@ -182,7 +185,7 @@
  * @typedef {Object} ContexteClient
  * @property {Utilisateur} utilisateur
  * @property {boolean} estTresorier
- * @property {boolean} ajoutPossible Faux si la configuration est incomplète.
+ * @property {boolean} ajoutPossible Ajout et pointage possibles : faux si la configuration est incomplète.
  * @property {string[]} problemes Problèmes de configuration détectés.
  * @property {string} urlClasseur URL du Sheet (trésorier uniquement).
  * @property {Object} reglages Libellés, formats et valeurs par défaut issus de CONFIG.

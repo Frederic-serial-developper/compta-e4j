@@ -19,7 +19,9 @@ Fournir aux membres habilités de l'association une application web (Google Apps
 3. d'**ajouter une nouvelle opération** dans la feuille `Opérations`, avec contrôle de saisie ;
 4. de **restreindre l'accès** aux seules personnes configurées, identifiées par leur compte Google.
 
-Hors périmètre (v1) : modification / suppression d'opérations, rapprochement depuis l'application, import bancaire, export PDF.
+5. de **pointer** (rapprocher) les opérations d'un compte, en une validation unique (§7bis).
+
+Hors périmètre : modification / suppression d'opérations, dépointage depuis l'application, import bancaire, export PDF.
 
 ---
 
@@ -273,6 +275,7 @@ Même principe pour les fichiers de la vue :
 | `getSyntheseParCategorie(exercice)` | ✅ | ✅ |
 | `getListesDeChoix()` | ✅ | ✅ |
 | `ajouterOperation(operation)` | ❌ (erreur « Droits insuffisants ») | ✅ |
+| `apiGetPointage(compte)`, `apiValiderPointage(demande)` | ❌ (erreur « Droits insuffisants ») | ✅ |
 
 Le contrôle est fait **côté serveur** ; masquer le bouton côté client n'est qu'un confort d'interface.
 
@@ -427,6 +430,30 @@ En cas d'erreur, le serveur renvoie `{ ok: false, erreurs: { champ: message } }`
 
 ---
 
+## 7bis. Fonctionnalité 4 — Pointage des opérations
+
+Réservée au rôle `Trésorier` (onglet « Pointage », masqué pour le lecteur ; contrôle côté serveur).
+
+### 7bis.1 Écran
+
+- **Compte** (liste de choix, avec un choix « Tous les comptes » : toutes les opérations non rapprochées, le compte affiché sur chaque ligne, tuiles cumulées sur l'ensemble des comptes) et **Solde du relevé** (facultatif, montant signé).
+- **« + Nouvelle opération »** : ouvre le formulaire d'ajout prérempli avec le compte pointé (opération du relevé absente du Sheet). Les cases cochées sont conservées : l'ajout écrit sur une ligne libre et l'onglet Pointage est relu au retour.
+- **Tuiles** recalculées à chaque case cochée ou décochée, sans appel au serveur :
+  - *Solde pointé* = Σ rapprochées du compte + Σ cochées ;
+  - *Reste à pointer* = Σ non rapprochées − Σ cochées ;
+  - *Écart relevé* = solde du relevé − solde pointé (« — » sans relevé ; mis en évidence à 0).
+- **Liste** des opérations non rapprochées du compte, tous exercices, triées par date ; toute la ligne bascule la case.
+- **Barre de validation** collante, visible dès qu'une case est cochée : nombre et montant cochés, « Annuler » (décoche tout, après confirmation), « Valider le pointage ». L'onglet affiche le nombre de cases cochées.
+
+### 7bis.2 Caractère transactionnel
+
+- Tant que « Valider le pointage » n'est pas cliqué, **rien n'est envoyé au serveur** : les cases cochées restent dans le navigateur. Elles survivent à un changement d'onglet et à « Actualiser » (sauf pour une opération disparue ou modifiée) ; changer de compte demande confirmation.
+- La validation envoie une **demande unique** `{ compte, operations: [{ ligne, dateIso, montant }] }`. Sous verrou, le serveur relit la feuille et vérifie que chaque ligne est toujours la même opération (compte — n'importe lequel pour « Tous les comptes », valeur `*` —, non rapprochée, date, montant). **Tout ou rien** : une seule différence → refus, aucune case cochée, message invitant à actualiser.
+- Écriture des cases `Rapproché` en un seul appel (`RangeList.setValue(true)`), invalidation du cache, ligne `POINTAGE` au Journal (compte, nombre, montant, lignes).
+- Le dépointage (case décochée par erreur) se fait dans le Sheet.
+
+---
+
 ## 8. Interface utilisateur
 
 ### 8.1 Charte graphique
@@ -538,6 +565,10 @@ Toutes les fonctions serveur renvoient un objet `{ ok, data | erreurs | message 
 | D3b | Formulaire ouvert | Exercice pré-sélectionné = dernière valeur de la liste ; Catégorie proposée en liste déroulante |
 | D4 | Saisie « =HYPERLINK(...) » dans Quoi | Enregistrée comme texte, non interprétée comme formule |
 | D5 | Deux ajouts simultanés | Deux lignes distinctes, aucune écrasée |
+| P1 | Pointage : cocher des opérations | Tuiles mises à jour à chaque case ; aucune écriture dans le Sheet avant validation |
+| P2 | Valider le pointage | Toutes les cases `Rapproché` cochées ; bilans mis à jour ; ligne `POINTAGE` au Journal |
+| P3 | Une opération cochée est modifiée dans le Sheet avant validation | Refus ; aucune case cochée |
+| P4 | Un `Lecteur` appelle `apiValiderPointage` | Refus « Droits insuffisants » |
 | E1 | Colonnes du Sheet réordonnées | Application fonctionnelle sans modification du code |
 | E1b | Feuille `Opérations` renommée, nouveau nom reporté uniquement dans `CONFIG` | Application fonctionnelle ; aucune autre ligne de code modifiée |
 | E1c | En-tête déclaré dans `CONFIG` absent du Sheet | Message clair de `verifierConfiguration_()` à l'ouverture |

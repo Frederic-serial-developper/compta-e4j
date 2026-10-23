@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
  *  Tests.gs — Tests des fonctions métier
  *
- *  Rôle : vérifier Bilan.gs, Operations.gs et la lecture d'une ligne sur des
+ *  Rôle : vérifier Bilan.gs, Operations.gs, Pointage.gs et la lecture d'une ligne sur des
  *         jeux de données en mémoire (le Sheet n'est ni lu ni modifié).
  *  Utilisation : dans l'éditeur Apps Script, sélectionner « lancerTests »
  *         puis Exécuter ; le compte rendu s'affiche dans le journal d'exécution.
- *  Dépendances : Bilan.gs, Operations.gs, Donnees.gs, Utils.gs.
+ *  Dépendances : Bilan.gs, Operations.gs, Pointage.gs, Donnees.gs, Utils.gs.
  * -------------------------------------------------------------------------- */
 
 /**
@@ -19,6 +19,7 @@ function lancerTests() {
     testerSyntheseCategorieVide_, testerSyntheseTotaux_, testerComparaisonExercicePrecedent_,
     testerVueCroisee_, testerListerAnnees_, testerSyntheseParAnnee_, testerVueCroiseeParAnnee_,
     testerSuiviBudgets_, testerStatutsBudget_, testerVentilationBudgets_, testerRepartitionProrata_,
+    testerPreparerPointage_, testerValiderPointage_, testerPointagePerime_, testerPointageTousComptes_,
     testerSaisieValide_, testerChampsObligatoires_, testerValeursHorsListe_,
     testerDates_, testerMontants_, testerLongueurs_, testerNeutralisationFormules_, testerCentimes_
   ];
@@ -48,6 +49,25 @@ function lancerTests() {
 function verifierEgal_(obtenu, attendu, libelle) {
   const [texteObtenu, texteAttendu] = [JSON.stringify(obtenu), JSON.stringify(attendu)];
   if (texteObtenu !== texteAttendu) throw new Error(`${libelle} : attendu ${texteAttendu}, obtenu ${texteObtenu}`);
+}
+
+/**
+ * Vérifie qu'un traitement lève une erreur dont le message contient un texte.
+ * @param {function(): *} traitement Traitement à exécuter.
+ * @param {string} extrait Texte attendu dans le message.
+ * @param {string} libelle Description de la vérification.
+ * @throws {Error} Si aucune erreur n'est levée ou si le message diffère.
+ */
+function verifierErreur_(traitement, extrait, libelle) {
+  let message = null;
+  try {
+    traitement();
+  } catch (erreur) {
+    message = erreur.message;
+  }
+  if (message === null || !message.includes(extrait)) {
+    throw new Error(`${libelle} : erreur contenant « ${extrait} » attendue, obtenu ${JSON.stringify(message)}`);
+  }
 }
 
 /**
@@ -300,6 +320,64 @@ function testerRepartitionProrata_() {
   verifierEgal_(repartirAuProrata_(100, [1, 1, 1]), [34, 33, 33], 'Plus fort reste, premier servi à égalité');
   verifierEgal_(repartirAuProrata_(7, [0, 0]), [0, 0], 'Poids nuls');
   verifierEgal_(repartirAuProrata_(1549, [100, 200]), [516, 1033], 'Prorata exact au centime');
+}
+
+/* === Pointage ============================================================ */
+
+/**
+ * Demande de pointage telle qu'envoyée par le navigateur pour le jeu commun.
+ * @param {Object[]} [operations] Opérations demandées (défaut : lignes 3 et 6 de Banque).
+ * @return {Object} Demande.
+ */
+function demandePointageTest_(operations) {
+  return {
+    compte: 'Banque',
+    operations: operations || [
+      { ligne: 6, dateIso: '2026-01-10', montant: -19.99 },
+      { ligne: 3, dateIso: '2026-02-01', montant: -25.5 }
+    ]
+  };
+}
+
+function testerPreparerPointage_() {
+  const pointage = preparerPointage_(jeuOperations_(), 'Banque');
+  verifierEgal_([pointage.soldes.rapproche, pointage.soldes.nonRapproche, pointage.soldes.total], [150, -45.49, 104.51],
+    'Soldes du compte, tous exercices');
+  verifierEgal_(pointage.operations.map((operation) => operation.ligne), [6, 3], 'Non rapprochées triées par date');
+  verifierEgal_(pointage.operations[0].dateIso, '2026-01-10', 'Date ISO transmise pour le contrôle');
+}
+
+function testerValiderPointage_() {
+  const resultat = validerPointage_(demandePointageTest_(), jeuOperations_());
+  verifierEgal_(resultat, { compte: 'Banque', lignes: [3, 6], montant: -45.49 }, 'Pointage accepté, lignes triées');
+  const doublon = demandePointageTest_([{ ligne: 3, dateIso: '2026-02-01', montant: -25.5 },
+    { ligne: 3, dateIso: '2026-02-01', montant: -25.5 }]);
+  verifierEgal_(validerPointage_(doublon, jeuOperations_()).lignes, [3], 'Ligne en double comptée une fois');
+  verifierErreur_(() => validerPointage_(demandePointageTest_([]), jeuOperations_()),
+    CONFIG.MESSAGES.POINTAGE_VIDE, 'Demande vide refusée');
+}
+
+function testerPointagePerime_() {
+  const verifierRefus = (element, libelle) => verifierErreur_(() =>
+    validerPointage_(demandePointageTest_([{ ligne: 6, dateIso: '2026-01-10', montant: -19.99 }, element]),
+      jeuOperations_()), 'ligne', libelle);
+  verifierRefus({ ligne: 3, dateIso: '2026-02-01', montant: -25 }, 'Montant modifié');
+  verifierRefus({ ligne: 3, dateIso: '2026-02-02', montant: -25.5 }, 'Date modifiée');
+  verifierRefus({ ligne: 2, dateIso: '2026-01-15', montant: 100 }, 'Déjà rapprochée');
+  verifierRefus({ ligne: 4, dateIso: '2026-01-15', montant: 0.01 }, 'Autre compte');
+  verifierRefus({ ligne: 99, dateIso: '2026-01-15', montant: 1 }, 'Ligne inexistante');
+}
+
+function testerPointageTousComptes_() {
+  const pointage = preparerPointage_(jeuOperations_(), TOUS_LES_COMPTES_);
+  verifierEgal_([pointage.soldes.rapproche, pointage.soldes.nonRapproche], [150, -45.48], 'Soldes de tous les comptes');
+  verifierEgal_(pointage.operations.map((operation) => operation.ligne), [6, 4, 3], 'Non rapprochées de tous les comptes');
+  verifierEgal_(pointage.operations[1].compte, 'Caisse', 'Compte transmis pour l\'affichage');
+  const demande = { compte: TOUS_LES_COMPTES_, operations: [{ ligne: 4, dateIso: '2026-01-15', montant: 0.01 },
+    { ligne: 3, dateIso: '2026-02-01', montant: -25.5 }] };
+  verifierEgal_(validerPointage_(demande, jeuOperations_()).lignes, [3, 4], 'Pointage sur plusieurs comptes');
+  verifierErreur_(() => validerPointage_({ compte: TOUS_LES_COMPTES_,
+    operations: [{ ligne: 2, dateIso: '2026-01-15', montant: 100 }] }, jeuOperations_()), 'ligne', 'Déjà rapprochée');
 }
 
 /* === Validation de la saisie ============================================= */

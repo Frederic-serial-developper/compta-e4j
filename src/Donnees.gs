@@ -3,10 +3,10 @@
  *
  *  Rôle : seul fichier qui lit et écrit le classeur. Repère les colonnes par
  *         leur en-tête, lit les opérations et les listes de choix, ajoute une
- *         ligne, gère le cache et le Journal.
+ *         ligne, coche les opérations pointées, gère le cache et le Journal.
  *  Fonctions principales : ouvrirClasseur_, lireDonnees_, lireOperations_,
- *         lireListesDeChoix_, listerColonnesManquantes_, ajouterLigneOperation_, lireAvecCache_,
- *         invaliderCache_, ecrireJournal_.
+ *         lireListesDeChoix_, listerColonnesManquantes_, ajouterLigneOperation_,
+ *         cocherRapprochees_, lireAvecCache_, invaliderCache_, ecrireJournal_.
  *  Dépendances : CONFIG (Code.gs), Utils.gs.
  * -------------------------------------------------------------------------- */
 
@@ -56,11 +56,12 @@ function lireDonnees_(forcer) {
  * Lit toutes les opérations (une seule lecture de la feuille).
  * Les lignes vides sont ignorées ; les lignes au montant non numérique sont
  * ignorées et leurs numéros renvoyés pour être signalés.
+ * @param {boolean} [forcer] Vrai pour relire la feuille même si déjà lue pendant l'exécution.
  * @return {{operations: Operation[], lignesIgnorees: number[]}}
  * @throws {Error} Si la feuille ou une colonne déclarée est introuvable.
  */
-function lireOperations_() {
-  const { index, lignes, premiereLigne } = lireFeuilleOperations_();
+function lireOperations_(forcer) {
+  const { index, lignes, premiereLigne } = lireFeuilleOperations_(forcer);
   const operations = [];
   const lignesIgnorees = [];
   lignes.forEach((valeurs, position) => {
@@ -307,9 +308,7 @@ function lireFeuilleOperations_(forcer) {
  * @throws {Error} Erreur métier si le verrou n'est pas obtenu à temps.
  */
 function ajouterLigneOperation_(operation) {
-  const verrou = LockService.getDocumentLock() || LockService.getScriptLock();
-  if (!verrou.tryLock(CONFIG.TECHNIQUE.VERROU_DELAI_MS)) throw erreurMetier_(CONFIG.MESSAGES.FICHIER_OCCUPE);
-  try {
+  return executerSousVerrou_(() => {
     // Relecture sous verrou : un autre ajout a pu avoir lieu depuis la première lecture.
     const donnees = lireFeuilleOperations_(true);
     const ligneCible = trouverLigneLibre_(donnees);
@@ -317,6 +316,21 @@ function ajouterLigneOperation_(operation) {
     ecrireValeurs_(donnees, ligneCible, convertirPourLeSheet_(operation));
     SpreadsheetApp.flush();
     return ligneCible;
+  });
+}
+
+/**
+ * Exécute un traitement sous le verrou du document, pour éviter que deux
+ * écritures simultanées s'écrasent.
+ * @param {function(): *} traitement Traitement à exécuter.
+ * @return {*} Résultat du traitement.
+ * @throws {Error} Erreur métier si le verrou n'est pas obtenu à temps.
+ */
+function executerSousVerrou_(traitement) {
+  const verrou = LockService.getDocumentLock() || LockService.getScriptLock();
+  if (!verrou.tryLock(CONFIG.TECHNIQUE.VERROU_DELAI_MS)) throw erreurMetier_(CONFIG.MESSAGES.FICHIER_OCCUPE);
+  try {
+    return traitement();
   } finally {
     verrou.releaseLock();
   }
@@ -377,6 +391,29 @@ function ecrireValeurs_(donnees, ligneCible, valeurs) {
   const { feuille, index } = donnees;
   Object.keys(CONFIG.COLONNES).forEach((cle) => {
     feuille.getRange(ligneCible, index[cle] + 1).setValue(valeurs[cle]);
+  });
+}
+
+/* === Pointage ============================================================ */
+
+/**
+ * Coche la case Rapproché d'un ensemble de lignes, en une seule écriture.
+ * Tout ou rien : les opérations sont relues sous verrou et passées à
+ * `controler`, qui lève une erreur (rien n'est alors écrit) si la demande ne
+ * correspond plus au Sheet.
+ * @param {function(Operation[]): {lignes: number[]}} controler Reçoit les
+ *     opérations relues et renvoie les lignes à cocher (avec d'autres informations éventuelles).
+ * @return {{lignes: number[]}} Résultat de `controler`.
+ * @throws {Error} Erreur métier si le verrou n'est pas obtenu ou si `controler` refuse.
+ */
+function cocherRapprochees_(controler) {
+  return executerSousVerrou_(() => {
+    const resultat = controler(lireOperations_(true).operations);
+    const { feuille, index } = lireFeuilleOperations_();
+    const cellules = resultat.lignes.map((ligne) => feuille.getRange(ligne, index.RAPPROCHE + 1).getA1Notation());
+    feuille.getRangeList(cellules).setValue(true);
+    SpreadsheetApp.flush();
+    return resultat;
   });
 }
 

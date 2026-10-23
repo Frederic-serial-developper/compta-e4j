@@ -78,7 +78,7 @@ const CONFIG = deepFreeze_({
   //  Valeurs à utiliser dans le champ role de UTILISATEURS.
   ROLES: {
     LECTEUR: 'Lecteur',        // Consultation seule
-    TRESORIER: 'Trésorier'     // Consultation + ajout d'opérations
+    TRESORIER: 'Trésorier'     // Consultation + ajout et pointage d'opérations
   },
 
   /* --- 7. Règles de saisie --------------------------------------------- */
@@ -96,18 +96,20 @@ const CONFIG = deepFreeze_({
   AFFICHAGE: {
     LIBELLE_SANS_CATEGORIE: 'Non catégorisé', // Catégorie affichée pour une opération sans catégorie
     LIBELLE_TOUS_EXERCICES: 'Tous',        // Libellé du choix « tous les exercices » dans les filtres
+    LIBELLE_TOUS_COMPTES: 'Tous les comptes', // Libellé du choix « tous les comptes » de l'écran de pointage
     FORMAT_DATE: 'dd/MM/yyyy',             // Format des dates affichées
     FORMAT_DATE_HEURE: 'dd/MM/yyyy HH:mm', // Format de l'heure de dernière mise à jour
-    ONGLET_PAR_DEFAUT: 'BILAN'             // 'BILAN', 'SYNTHESE', 'BUDGET' ou 'AJOUT' : onglet ouvert au démarrage
+    ONGLET_PAR_DEFAUT: 'BILAN'             // 'BILAN', 'SYNTHESE', 'BUDGET', 'POINTAGE' ou 'AJOUT' : onglet ouvert au démarrage
   },
 
   /* --- 9. Technique ----------------------------------------------------- */
   TECHNIQUE: {
     CACHE_DUREE_SECONDES: 600,             // Durée de mise en cache des données et calculs (max. 21600) ; « Actualiser » relit le Sheet
-    VERROU_DELAI_MS: 10000,                // Attente maximale du verrou lors d'un ajout
+    VERROU_DELAI_MS: 10000,                // Attente maximale du verrou lors d'un ajout ou d'un pointage
     PROPRIETE_VERSION_CACHE: 'VERSION_CACHE', // Nom de la propriété de script servant à invalider le cache
     ACTIONS_JOURNAL: {                     // Codes écrits dans la colonne Action du Journal
       AJOUT: 'AJOUT_OPERATION',
+      POINTAGE: 'POINTAGE',
       REFUS: 'ACCES_REFUSE'
     }
   },
@@ -128,6 +130,9 @@ const CONFIG = deepFreeze_({
     CORRIGER_ERREURS: 'Corrigez les champs signalés.',
     FICHIER_OCCUPE: 'Le fichier est occupé, réessayez dans quelques secondes.',
     OPERATION_ENREGISTREE: 'Opération enregistrée (ligne {ligne}).',
+    POINTAGE_ENREGISTRE: '{nombre} opération(s) pointée(s) ({compte}).',
+    POINTAGE_VIDE: 'Aucune opération à pointer.',
+    POINTAGE_PERIME: 'Le Sheet a changé depuis l\'affichage (ligne {ligne}) : rien n\'a été pointé. Actualisez puis validez à nouveau.',
     FEUILLE_INTROUVABLE: 'Feuille "{feuille}" introuvable dans le classeur.',
     COLONNE_INTROUVABLE: 'Colonne "{colonne}" introuvable dans la feuille {feuille}.',
     PARAMETRE_INVALIDE: 'Paramètre de configuration invalide : {parametre}.',
@@ -162,8 +167,8 @@ function deepFreeze_(objet) {
  *  Fonctions principales : doGet, include, apiGetContexte, apiGetListesDeChoix,
  *         apiGetBilanParCompte, apiGetDetailNonRapprochees,
  *         apiGetSyntheseParCategorie, apiGetSyntheseTousExercices,
- *         apiGetSuiviBudgets, apiAjouterOperation.
- *  Dépendances : Acces.gs, Operations.gs, Bilan.gs, Donnees.gs, Utils.gs.
+ *         apiGetSuiviBudgets, apiAjouterOperation, apiGetPointage, apiValiderPointage.
+ *  Dépendances : Acces.gs, Operations.gs, Pointage.gs, Bilan.gs, Donnees.gs, Utils.gs.
  * -------------------------------------------------------------------------- */
 
 /* === Page web ============================================================ */
@@ -333,6 +338,43 @@ function apiAjouterOperation(saisie) {
   });
 }
 
+/**
+ * Données de l'écran de pointage d'un compte, ou de tous les comptes
+ * (rôle Trésorier). Le Sheet est toujours relu (pas de cache) : un pointage
+ * fait directement dans le Sheet doit apparaître aussitôt.
+ * @param {{compte: string}} parametres Compte à pointer, ou TOUS_LES_COMPTES_.
+ * @return {ReponseApi} data : { compte, soldes: LigneBilan, operations: OperationAffichee[] }.
+ */
+function apiGetPointage(parametres) {
+  return executerApi_(CONFIG.ROLES.TRESORIER, () => {
+    const compte = texte_(parametres && parametres.compte);
+    return preparerPointage_(lireOperations_(true).operations, compte);
+  });
+}
+
+/**
+ * Valide un pointage (rôle Trésorier) : coche la case Rapproché de toutes les
+ * opérations demandées, ou d'aucune si l'une d'elles a changé dans le Sheet
+ * depuis l'affichage.
+ * @param {{compte: string, operations: {ligne: number, dateIso: string, montant: number}[]}} demande
+ *     Opérations cochées, telles qu'affichées.
+ * @return {ReponseApi} data : { nombre, message }.
+ */
+function apiValiderPointage(demande) {
+  return executerApi_(CONFIG.ROLES.TRESORIER, (utilisateur) => {
+    const pointage = cocherRapprochees_((operations) => validerPointage_(demande, operations));
+    invaliderCache_();
+    const { lignes, montant } = pointage;
+    const compte = libelleComptePointage_(pointage.compte);
+    ecrireJournal_(CONFIG.TECHNIQUE.ACTIONS_JOURNAL.POINTAGE, utilisateur.email,
+      `${compte} : ${lignes.length} opération(s), ${montant} ; lignes ${lignes.join(', ')}`);
+    return {
+      nombre: lignes.length,
+      message: remplacerVariables_(CONFIG.MESSAGES.POINTAGE_ENREGISTRE, { nombre: lignes.length, compte })
+    };
+  });
+}
+
 /* === Fonctions internes ================================================== */
 
 /**
@@ -441,7 +483,7 @@ function verifierParametres_() {
       typeof enveloppe.montant === 'number' && enveloppe.montant > 0),
     'BUDGET.SEUIL_ALERTE_POURCENT': typeof BUDGET.SEUIL_ALERTE_POURCENT === 'number'
       && BUDGET.SEUIL_ALERTE_POURCENT >= 0 && BUDGET.SEUIL_ALERTE_POURCENT <= 100,
-    'AFFICHAGE.ONGLET_PAR_DEFAUT': ['BILAN', 'SYNTHESE', 'BUDGET', 'AJOUT'].includes(AFFICHAGE.ONGLET_PAR_DEFAUT),
+    'AFFICHAGE.ONGLET_PAR_DEFAUT': ['BILAN', 'SYNTHESE', 'BUDGET', 'POINTAGE', 'AJOUT'].includes(AFFICHAGE.ONGLET_PAR_DEFAUT),
     'SAISIE.CHAMPS_A_LISTE': SAISIE.CHAMPS_A_LISTE.every((cle) => clesColonnes.includes(cle)),
     'SAISIE.CHAMPS_FACULTATIFS': SAISIE.CHAMPS_FACULTATIFS.every((cle) => clesColonnes.includes(cle)),
     'SAISIE.CHAMPS_CONSERVES_APRES_AJOUT':
@@ -498,6 +540,7 @@ function construireReglagesClient_() {
     locale: APP.LOCALE,
     devise: APP.DEVISE,
     libelleTous: AFFICHAGE.LIBELLE_TOUS_EXERCICES,
+    tousLesComptes: { valeur: TOUS_LES_COMPTES_, libelle: AFFICHAGE.LIBELLE_TOUS_COMPTES },
     ongletParDefaut: AFFICHAGE.ONGLET_PAR_DEFAUT,
     colonnes: COLONNES,
     saisie: Object.assign({}, SAISIE, { dateMax: ajouterJoursIso_(aujourdhuiIso_(), SAISIE.DATE_MAX_JOURS_FUTUR) }),

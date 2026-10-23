@@ -3,11 +3,12 @@
    *  App.html — JavaScript de l'interface
    *
    *  Rôle : navigation par onglets, appels au serveur (google.script.run),
-   *         affichage du bilan, de la synthèse, du suivi budgétaire et du
-   *         formulaire d'ajout.
+   *         affichage du bilan, de la synthèse, du suivi budgétaire, du
+   *         pointage et du formulaire d'ajout.
    *  Les libellés, formats et valeurs par défaut viennent du serveur
    *  (apiGetContexte, issus de CONFIG) ; seuls les réglages purement visuels
-   *  sont déclarés ici. Aucun calcul de total n'est fait dans le navigateur.
+   *  sont déclarés ici. Aucun calcul de total n'est fait dans le navigateur,
+   *  sauf l'aperçu des soldes pendant un pointage non encore validé.
    *  Sécurité : le HTML est construit avec textContent (jamais innerHTML avec
    *  des données).
    * ======================================================================== */
@@ -30,8 +31,8 @@
   const etat = {
     contexte: null,
     ongletActif: null,
-    perimes: { BILAN: true, SYNTHESE: true, BUDGET: true },
-    jetons: { BILAN: 0, SYNTHESE: 0, BUDGET: 0, DETAIL: 0 },
+    perimes: { BILAN: true, SYNTHESE: true, BUDGET: true, POINTAGE: true },
+    jetons: { BILAN: 0, SYNTHESE: 0, BUDGET: 0, DETAIL: 0, POINTAGE: 0 },
     compteSelectionne: null,
     synthese: null,
     tri: { cle: 'solde', sens: -1 },
@@ -39,8 +40,13 @@
     envoiEnCours: false,
     bilanAnticipe: null,
     budgets: null,
-    ventiler: false
+    ventiler: false,
+    // Pointage en cours : rien n'est envoyé au serveur avant « Valider le pointage ».
+    pointage: { compte: '', donnees: null, selection: new Map(), envoiEnCours: false }
   };
+
+  /** Onglets réservés au trésorier. */
+  const ONGLETS_TRESORIER = ['POINTAGE', 'AJOUT'];
 
   /** Champs texte et listes du formulaire, dans l'ordre d'affichage. */
   const CHAMPS_FORMULAIRE = ['COMPTE', 'QUAND', 'QUI', 'QUOI', 'MOYEN', 'COMBIEN', 'EXERCICE',
@@ -86,15 +92,23 @@
       etat.ventiler = evenement.target.checked;
       if (etat.budgets) afficherBudgets(etat.budgets);
     });
+    $('pointage-compte').addEventListener('change', changerComptePointage);
+    $('pointage-releve').addEventListener('input', mettreAJourTotauxPointage);
+    $('pointage-annuler').addEventListener('click', annulerPointage);
+    $('pointage-valider').addEventListener('click', validerPointage);
+    $('pointage-ajouter').addEventListener('click', ajouterDepuisPointage);
+    window.addEventListener('beforeunload', (evenement) => {
+      if (etat.pointage.selection.size > 0) evenement.preventDefault();
+    });
     $('formulaire-ajout').addEventListener('submit', envoyerFormulaire);
     $('formulaire-ajout').addEventListener('input', mettreAJourBoutonEnregistrer);
     $('formulaire-ajout').addEventListener('change', mettreAJourBoutonEnregistrer);
   }
 
-  /** Applique le contexte : onglet Ajouter, lien vers le Sheet, libellés, listes. */
+  /** Applique le contexte : onglets du trésorier, lien vers le Sheet, libellés, listes. */
   function preparerInterface() {
     const { estTresorier, urlClasseur, listes } = etat.contexte;
-    $('onglet-AJOUT').hidden = !estTresorier;
+    ONGLETS_TRESORIER.forEach((nom) => { $(`onglet-${nom}`).hidden = !estTresorier; });
     if (urlClasseur) {
       $('lien-classeur').href = urlClasseur;
       $('lien-classeur').hidden = false;
@@ -104,20 +118,21 @@
     if (listes) remplirListes(listes);
   }
 
-  /** @return {string} Onglet à ouvrir au démarrage (Ajouter réservé au trésorier). */
+  /** @return {string} Onglet à ouvrir au démarrage (Pointage et Ajouter réservés au trésorier). */
   function choisirOngletInitial() {
     const onglet = etat.contexte.reglages.ongletParDefaut;
-    return onglet === 'AJOUT' && !etat.contexte.estTresorier ? 'BILAN' : onglet;
+    return ONGLETS_TRESORIER.includes(onglet) && !etat.contexte.estTresorier ? 'BILAN' : onglet;
   }
 
   /* === Navigation ====================================================== */
 
   /**
    * Affiche un onglet et charge ses données si elles sont périmées.
-   * @param {string} nom 'BILAN', 'SYNTHESE', 'BUDGET' ou 'AJOUT'.
+   * Changer d'onglet ne perd pas un pointage en cours.
+   * @param {string} nom 'BILAN', 'SYNTHESE', 'BUDGET', 'POINTAGE' ou 'AJOUT'.
    */
   function afficherOnglet(nom) {
-    if (nom === 'AJOUT' && !etat.contexte.estTresorier) return;
+    if (ONGLETS_TRESORIER.includes(nom) && !etat.contexte.estTresorier) return;
     etat.ongletActif = nom;
     document.querySelectorAll('[data-onglet]').forEach((bouton) => {
       const estActif = bouton.dataset.onglet === nom;
@@ -130,8 +145,8 @@
   }
 
   /**
-   * Charge les données d'un onglet de consultation.
-   * @param {string} nom 'BILAN', 'SYNTHESE' ou 'BUDGET'.
+   * Charge les données d'un onglet de consultation ou de pointage.
+   * @param {string} nom 'BILAN', 'SYNTHESE', 'BUDGET' ou 'POINTAGE'.
    * @param {boolean} forcer Vrai pour ignorer le cache du serveur.
    * @return {Promise<void>}
    */
@@ -139,6 +154,7 @@
     if (nom === 'BILAN') return chargerBilan(forcer);
     if (nom === 'SYNTHESE') return chargerSynthese(forcer);
     if (nom === 'BUDGET') return chargerBudgets(forcer);
+    if (nom === 'POINTAGE') return chargerPointage();
     return Promise.resolve();
   }
 
@@ -160,13 +176,18 @@
   async function actualiser() {
     const bouton = $('bouton-actualiser');
     bouton.classList.add('en-cours');
-    etat.perimes = { BILAN: true, SYNTHESE: true, BUDGET: true };
-    etat.bilanAnticipe = null;
+    marquerOngletsPerimes();
     const reponse = await appelerApi('apiGetListesDeChoix', { forcer: true });
     if (reponse.ok) remplirListes(reponse.data);
     else signalerErreur(reponse);
     await chargerOnglet(etat.ongletActif, false);
     bouton.classList.remove('en-cours');
+  }
+
+  /** Après une écriture ou une actualisation : chaque onglet sera recalculé à son affichage. */
+  function marquerOngletsPerimes() {
+    etat.perimes = { BILAN: true, SYNTHESE: true, BUDGET: true, POINTAGE: true };
+    etat.bilanAnticipe = null;
   }
 
   /* === Listes de choix ================================================= */
@@ -183,6 +204,8 @@
     const tous = { valeur: '', libelle: etat.contexte.reglages.libelleTous };
     remplirSelect($('bilan-exercice'), [tous].concat(versOptions(exercices)), '');
     remplirPeriodesSynthese();
+    remplirSelect($('pointage-compte'), [{ valeur: '', libelle: '— Choisir —' }, etat.contexte.reglages.tousLesComptes]
+      .concat(versOptions(listes.COMPTE)), '');
     ['COMPTE', 'MOYEN', 'EXERCICE', 'CATEGORIE'].forEach((cle) => {
       const choisir = { valeur: '', libelle: '— Choisir —' };
       remplirSelect($(`champ-${cle}`), [choisir].concat(versOptions(listes[cle])), cle === 'EXERCICE' ? dernier : '');
@@ -622,6 +645,223 @@
       creer('div', { classe: 'ligne-liste__meta', texte: `${ligne.nbOperations} opération(s)` })]);
   }
 
+  /* === Pointage ======================================================== */
+
+  /**
+   * Demande au serveur les soldes et les opérations non rapprochées du compte
+   * choisi. Les cases déjà cochées sont conservées pour les opérations
+   * toujours présentes et identiques : rien n'ayant été envoyé au serveur, le
+   * pointage en cours survit à une actualisation.
+   */
+  async function chargerPointage() {
+    const jeton = ++etat.jetons.POINTAGE;
+    const pointage = etat.pointage;
+    const compte = $('pointage-compte').value;
+    if (compte !== pointage.compte) pointage.selection.clear();
+    pointage.compte = compte;
+    if (!compte) {
+      pointage.donnees = null;
+      etat.perimes.POINTAGE = false;
+      return afficherPointage();
+    }
+    basculerChargement($('pointage-contenu'), true);
+    const reponse = await appelerApi('apiGetPointage', { compte });
+    if (jeton !== etat.jetons.POINTAGE) return;
+    basculerChargement($('pointage-contenu'), false);
+    if (!reponse.ok) return signalerErreur(reponse);
+    etat.perimes.POINTAGE = false;
+    pointage.donnees = reponse.data;
+    conserverSelectionValide(reponse.data.operations);
+    afficherPointage();
+  }
+
+  /**
+   * Retire de la sélection les opérations disparues ou modifiées dans le Sheet.
+   * @param {Object[]} operations Opérations non rapprochées relues.
+   */
+  function conserverSelectionValide(operations) {
+    const relues = new Map(operations.map((operation) => [operation.ligne, operation]));
+    etat.pointage.selection.forEach((operation, ligne) => {
+      const relue = relues.get(ligne);
+      if (!relue || relue.dateIso !== operation.dateIso || relue.montant !== operation.montant) {
+        etat.pointage.selection.delete(ligne);
+      }
+    });
+  }
+
+  /** Changement de compte : confirme l'abandon des cases cochées, s'il y en a. */
+  function changerComptePointage() {
+    const nombre = etat.pointage.selection.size;
+    if (nombre > 0 && !window.confirm(`Abandonner le pointage en cours (${nombre} opération(s) cochée(s)) ?`)) {
+      $('pointage-compte').value = etat.pointage.compte;
+      return;
+    }
+    chargerPointage();
+  }
+
+  /** Affiche les tuiles de soldes et la liste des opérations à pointer. */
+  function afficherPointage() {
+    const { donnees } = etat.pointage;
+    const contenu = $('pointage-contenu');
+    if (!donnees) {
+      contenu.replaceChildren(creer('p', { classe: 'carte vide', texte: 'Choisissez le compte à pointer.' }));
+    } else {
+      const liste = donnees.operations.length > 0
+        ? creer('div', { classe: 'carte' }, [
+          creer('h2', { classe: 'carte__titre', texte: `À pointer — ${libelleComptePointage(donnees.compte)}` }),
+          creer('div', { classe: 'liste' }, donnees.operations.map(creerLignePointage))])
+        : creer('p', { classe: 'carte vide', texte: estTousLesComptes(donnees.compte)
+          ? '✓ Toutes les opérations sont rapprochées.' : '✓ Toutes les opérations de ce compte sont rapprochées.' });
+      contenu.replaceChildren(creer('div', { classe: 'tuiles', attributs: { id: 'pointage-tuiles' } }), liste);
+    }
+    mettreAJourTotauxPointage();
+  }
+
+  /**
+   * Opération à pointer : toute la ligne est cliquable et bascule la case.
+   * @param {Object} operation Opération non rapprochée.
+   * @return {HTMLElement} Ligne de la liste.
+   */
+  function creerLignePointage(operation) {
+    const caseACocher = creer('input', { attributs: { type: 'checkbox' } });
+    caseACocher.checked = etat.pointage.selection.has(operation.ligne);
+    const compte = estTousLesComptes(etat.pointage.compte) ? operation.compte : '';
+    const meta = [compte, operation.date, operation.qui, operation.moyen].filter(Boolean).join(' • ');
+    const ligne = creer('label', { classe: 'ligne-liste ligne-pointage' }, [
+      caseACocher,
+      creer('div', { classe: 'ligne-pointage__texte' }, [
+        creer('div', { classe: 'ligne-liste__haut' }, [
+          creer('span', { texte: operation.quoi || '—' }),
+          creer('span', { classe: `montant ${classeMontant(operation.montant)}`, texte: formaterMontant(operation.montant) })]),
+        creer('div', { classe: 'ligne-liste__meta', texte: meta }),
+        operation.commentaire ? creer('div', { classe: 'ligne-liste__meta', texte: operation.commentaire }) : null])]);
+    ligne.classList.toggle('ligne-pointage--cochee', caseACocher.checked);
+    caseACocher.addEventListener('change', () => {
+      if (caseACocher.checked) etat.pointage.selection.set(operation.ligne, operation);
+      else etat.pointage.selection.delete(operation.ligne);
+      ligne.classList.toggle('ligne-pointage--cochee', caseACocher.checked);
+      mettreAJourTotauxPointage();
+    });
+    return ligne;
+  }
+
+  /**
+   * Recalcule l'aperçu des soldes à partir des soldes du serveur et des cases
+   * cochées (en centimes, pour éviter les erreurs d'arrondi), puis met à jour
+   * les tuiles, la barre de validation et le libellé de l'onglet.
+   */
+  function mettreAJourTotauxPointage() {
+    const { donnees, selection, envoiEnCours } = etat.pointage;
+    const facteur = 10 ** etat.contexte.reglages.saisie.DECIMALES_MONTANT;
+    const versCentimes = (euros) => Math.round(euros * facteur);
+    const nombre = selection.size;
+    const centimesCoches = Array.from(selection.values())
+      .reduce((somme, operation) => somme + versCentimes(operation.montant), 0);
+    $('onglet-POINTAGE').textContent = nombre > 0 ? `Pointage (${nombre})` : 'Pointage';
+    $('pointage-barre').hidden = nombre === 0;
+    $('pointage-resume').textContent = `${nombre} opération(s) cochée(s) · ${formaterMontant(centimesCoches / facteur)}`;
+    $('pointage-valider').disabled = nombre === 0 || envoiEnCours || !etat.contexte.ajoutPossible;
+    $('pointage-annuler').disabled = envoiEnCours;
+    const releve = lireSoldeReleve(facteur);
+    if (!donnees) return;
+    const soldePointe = versCentimes(donnees.soldes.rapproche) + centimesCoches;
+    const ecart = releve === null ? null : (releve - soldePointe) / facteur;
+    const tuileEcart = creerTuile('Écart relevé', ecart);
+    tuileEcart.classList.toggle('tuile--equilibre', ecart === 0);
+    $('pointage-tuiles').replaceChildren(
+      creerTuile('Solde pointé', soldePointe / facteur, true),
+      creerTuile('Reste à pointer', (versCentimes(donnees.soldes.nonRapproche) - centimesCoches) / facteur),
+      tuileEcart);
+  }
+
+  /**
+   * Lit le solde du relevé saisi (facultatif) et signale une saisie illisible.
+   * @param {number} facteur Nombre de centimes par euro.
+   * @return {?number} Solde en centimes, ou null si vide ou illisible.
+   */
+  function lireSoldeReleve(facteur) {
+    const champ = $('pointage-releve');
+    const texte = champ.value.replace(/[\s  ]/g, '');
+    const estLisible = texte === '' || motifMontant(etat.contexte.reglages.saisie.DECIMALES_MONTANT).test(texte);
+    champ.closest('.champ').classList.toggle('champ--erreur', !estLisible);
+    champ.setAttribute('aria-invalid', String(!estLisible));
+    return texte !== '' && estLisible ? Math.round(Number(texte.replace(',', '.')) * facteur) : null;
+  }
+
+  /**
+   * @param {string} compte Compte choisi dans l'écran de pointage.
+   * @return {boolean} Vrai pour le choix « tous les comptes ».
+   */
+  function estTousLesComptes(compte) {
+    return compte === etat.contexte.reglages.tousLesComptes.valeur;
+  }
+
+  /**
+   * @param {string} compte Compte choisi dans l'écran de pointage.
+   * @return {string} Libellé affiché.
+   */
+  function libelleComptePointage(compte) {
+    return estTousLesComptes(compte) ? etat.contexte.reglages.tousLesComptes.libelle : compte;
+  }
+
+  /**
+   * Ouvre le formulaire d'ajout, prérempli avec le compte pointé (opération
+   * présente sur le relevé mais absente du Sheet). Les cases cochées sont
+   * conservées : la nouvelle opération est écrite sur une ligne libre, les
+   * lignes affichées ne changent pas, et l'onglet Pointage est relu au retour.
+   */
+  function ajouterDepuisPointage() {
+    const { compte } = etat.pointage;
+    const estUnCompte = compte !== '' && !estTousLesComptes(compte);
+    afficherOnglet('AJOUT');
+    if (estUnCompte) {
+      $('champ-COMPTE').value = compte;
+      mettreAJourBoutonEnregistrer();
+    }
+    $(estUnCompte ? 'champ-QUAND' : 'champ-COMPTE').focus();
+  }
+
+  /** Décoche toutes les opérations, après confirmation. */
+  function annulerPointage() {
+    const nombre = etat.pointage.selection.size;
+    if (nombre === 0 || !window.confirm(`Décocher les ${nombre} opération(s) cochée(s) ?`)) return;
+    etat.pointage.selection.clear();
+    afficherPointage();
+  }
+
+  /**
+   * Envoie le pointage au serveur, en une seule demande : soit toutes les
+   * opérations cochées sont rapprochées, soit aucune. Chaque opération est
+   * envoyée avec sa date et son montant pour que le serveur vérifie qu'elle
+   * n'a pas changé dans le Sheet depuis l'affichage.
+   */
+  async function validerPointage() {
+    const { compte, selection } = etat.pointage;
+    if (etat.pointage.envoiEnCours || selection.size === 0 || !etat.contexte.ajoutPossible) return;
+    const operations = Array.from(selection.values()).map(({ ligne, dateIso, montant }) => ({ ligne, dateIso, montant }));
+    basculerEnvoiPointage(true);
+    const reponse = await appelerApi('apiValiderPointage', { compte, operations });
+    basculerEnvoiPointage(false);
+    if (!reponse.ok) return signalerErreur(reponse);
+    afficherToast(`✓ ${reponse.data.message}`, 'succes');
+    selection.clear();
+    marquerOngletsPerimes();
+    chargerPointage();
+  }
+
+  /**
+   * Bloque la liste et les boutons pendant l'envoi (protection contre le double clic).
+   * @param {boolean} estEnCours Vrai pendant l'envoi.
+   */
+  function basculerEnvoiPointage(estEnCours) {
+    etat.pointage.envoiEnCours = estEnCours;
+    $('pointage-compte').disabled = estEnCours;
+    $('pointage-valider').classList.toggle('en-envoi', estEnCours);
+    $('chargeur-pointage').hidden = !estEnCours;
+    basculerChargement($('pointage-contenu'), estEnCours);
+    mettreAJourTotauxPointage();
+  }
+
   /* === Formulaire d'ajout ============================================== */
 
   /** Prépare le formulaire (valeurs par défaut, état du bouton) à l'ouverture de l'onglet. */
@@ -726,8 +966,15 @@
    */
   function estMontantValide(texte, decimales) {
     const nettoye = String(texte).replace(/[\s  ]/g, '');
-    const motif = decimales > 0 ? new RegExp(`^[+-]?\\d+([.,]\\d{1,${decimales}})?$`) : /^[+-]?\d+$/;
-    return motif.test(nettoye) && Number(nettoye.replace(',', '.')) !== 0;
+    return motifMontant(decimales).test(nettoye) && Number(nettoye.replace(',', '.')) !== 0;
+  }
+
+  /**
+   * @param {number} decimales Nombre maximal de décimales.
+   * @return {RegExp} Motif d'un montant signé, virgule ou point décimal (espaces déjà retirés).
+   */
+  function motifMontant(decimales) {
+    return decimales > 0 ? new RegExp(`^[+-]?\\d+([.,]\\d{1,${decimales}})?$`) : /^[+-]?\d+$/;
   }
 
   /**
@@ -800,8 +1047,7 @@
   function confirmerAjout(resultat) {
     afficherToast(`✓ ${resultat.message}`, 'succes');
     reinitialiserFormulaire(etat.contexte.reglages.saisie.CHAMPS_CONSERVES_APRES_AJOUT);
-    etat.perimes = { BILAN: true, SYNTHESE: true, BUDGET: true };
-    etat.bilanAnticipe = null;
+    marquerOngletsPerimes();
     $('champ-QUI').focus();
   }
 
@@ -889,7 +1135,7 @@
   /**
    * Tuile de statistique.
    * @param {string} libelle Libellé (affiché en capitales).
-   * @param {number} montant Montant.
+   * @param {?number} montant Montant (null = « — »).
    * @param {boolean} [estAccent] Vrai pour la tuile principale.
    * @return {HTMLElement} Tuile.
    */
@@ -897,7 +1143,7 @@
     const classeValeur = montant > 0 ? 'montant--positif' : classeMontant(montant);
     return creer('div', { classe: estAccent ? 'tuile tuile--accent' : 'tuile' }, [
       creer('div', { classe: 'label', texte: libelle }),
-      creer('div', { classe: `tuile__valeur ${classeValeur}`, texte: formaterMontant(montant) })]);
+      creer('div', { classe: `tuile__valeur ${classeValeur}`, texte: montant === null ? '—' : formaterMontant(montant) })]);
   }
 
   /**

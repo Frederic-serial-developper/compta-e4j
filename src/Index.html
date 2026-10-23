@@ -47,6 +47,7 @@
       <button type="button" class="onglet" role="tab" id="onglet-BILAN" data-onglet="BILAN" aria-controls="panneau-BILAN" aria-selected="false">Bilan par compte</button>
       <button type="button" class="onglet" role="tab" id="onglet-SYNTHESE" data-onglet="SYNTHESE" aria-controls="panneau-SYNTHESE" aria-selected="false">Synthèse par catégorie</button>
       <button type="button" class="onglet" role="tab" id="onglet-BUDGET" data-onglet="BUDGET" aria-controls="panneau-BUDGET" aria-selected="false">Budgets</button>
+      <button type="button" class="onglet" role="tab" id="onglet-POINTAGE" data-onglet="POINTAGE" aria-controls="panneau-POINTAGE" aria-selected="false" hidden>Pointage</button>
       <button type="button" class="onglet" role="tab" id="onglet-AJOUT" data-onglet="AJOUT" aria-controls="panneau-AJOUT" aria-selected="false" hidden>+ Ajouter</button>
     </nav>
 
@@ -122,6 +123,33 @@
       </div>
       <div id="budget-avertissement" class="bandeau" role="status" hidden></div>
       <div id="budget-contenu" class="pile zone-chargement"></div>
+    </section>
+
+    <!-- === Pointage des opérations ====================================== -->
+    <!-- Rien n'est envoyé au serveur avant « Valider le pointage ». -->
+    <section id="panneau-POINTAGE" class="pile" role="tabpanel" aria-labelledby="onglet-POINTAGE" hidden>
+      <div class="carte filtres">
+        <div class="champ">
+          <label class="label" for="pointage-compte">Compte</label>
+          <select id="pointage-compte"></select>
+        </div>
+        <div class="champ">
+          <label class="label" for="pointage-releve">Solde du relevé <span class="attenue">(facultatif)</span></label>
+          <input type="text" id="pointage-releve" inputmode="decimal" autocomplete="off" placeholder="1 234,56">
+        </div>
+        <button type="button" id="pointage-ajouter" class="bouton-secondaire">+ Nouvelle opération</button>
+      </div>
+      <div id="pointage-contenu" class="pile zone-chargement"></div>
+      <div id="pointage-barre" class="carte barre-validation" hidden>
+        <span id="pointage-resume" role="status" aria-live="polite"></span>
+        <div class="barre-validation__actions">
+          <button type="button" id="pointage-annuler" class="bouton-secondaire">Annuler</button>
+          <button type="button" id="pointage-valider" class="cta cta--compact">
+            <span id="chargeur-pointage" class="chargeur" hidden></span>
+            <span>Valider le pointage</span>
+          </button>
+        </div>
+      </div>
     </section>
 
     <!-- === Ajout d'une opération ========================================= -->
