@@ -617,6 +617,7 @@
     const badge = etat.ventiler && cede > 0 && affichee.statut !== 'DEPASSE'
       ? { classe: 'badge', texte: 'Dépassement reporté' }
       : badges[affichee.statut];
+    const libelle = ligne.categories.join(', ');
     const borner = (valeur) => Math.min(Math.max(valeur, 0), 100);
     const partPropre = borner(ligne.budget === 0 ? 0 : ((affichee.consomme - (etat.ventiler ? recu : 0)) / ligne.budget) * 100);
     const partRecue = etat.ventiler && recu > 0 ? borner(borner(affichee.pourcentage) - partPropre) : 0;
@@ -624,7 +625,7 @@
     const jauge = creer('div', { classe: 'jauge', attributs: {
       role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
       'aria-valuenow': String(borner(affichee.pourcentage)),
-      'aria-label': `${ligne.categorie} : ${pourcentage} du budget consommé` } }, [
+      'aria-label': `${libelle} : ${pourcentage} du budget consommé` } }, [
       creer('div', { classe: `jauge__remplissage ${classeStatut}` }),
       partRecue > 0 ? creer('div', { classe: `jauge__remplissage jauge__remplissage--ventile ${classeStatut}` }) : null]);
     jauge.children[0].style.width = `${partPropre}%`;
@@ -637,7 +638,7 @@
     if (etat.ventiler && cede > 0) detailVentilation = `${formaterMontant(cede)} de dépassement reportés sur les autres enveloppes`;
     return creer('div', { classe: 'carte enveloppe' }, [
       creer('div', { classe: 'enveloppe__haut' }, [
-        creer('h2', { classe: 'carte__titre', texte: ligne.categorie }),
+        creer('h2', { classe: 'carte__titre', texte: libelle }),
         creer('span', { classe: badge.classe, texte: badge.texte })]),
       jauge,
       creer('div', { classe: 'enveloppe__chiffres' }, [

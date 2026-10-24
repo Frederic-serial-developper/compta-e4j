@@ -226,7 +226,7 @@ function valeursDesListes_(listes) {
 
 /**
  * Lit les enveloppes du budget dans la feuille CONFIG.FICHIER.FEUILLE_BUDGET.
- * @return {{enveloppes: {categorie: string, montant: number}[], lignesIgnorees: number[]}}
+ * @return {{enveloppes: {categories: string[], montant: number}[], lignesIgnorees: number[]}}
  *     Montants en euros ; numéros des lignes invalides à signaler.
  * @throws {Error} Si la feuille ou un en-tête est introuvable.
  */
@@ -239,11 +239,13 @@ function lireEnveloppesBudget_() {
  * Extrait les enveloppes du tableau de la feuille Budget. La ligne d'en-tête
  * est la première qui contient tous les en-têtes de CONFIG.COLONNES_BUDGET
  * (le tableau peut donc être placé n'importe où) ; la lecture s'arrête à la
- * première ligne vide qui suit. Une ligne à la catégorie vide ou déjà vue, ou
+ * première ligne vide qui suit. La cellule Catégorie est une liste déroulante
+ * à choix multiples : ses valeurs sont séparées par des virgules. Une ligne
+ * sans catégorie, dont une catégorie figure déjà dans une autre enveloppe, ou
  * au montant non numérique ou ≤ 0, est ignorée.
  * @param {Array<Array<*>>} valeurs Contenu de la feuille.
  * @param {string} nomFeuille Nom de la feuille (pour le message d'erreur).
- * @return {{enveloppes: {categorie: string, montant: number}[], lignesIgnorees: number[]}}
+ * @return {{enveloppes: {categories: string[], montant: number}[], lignesIgnorees: number[]}}
  * @throws {Error} Erreur métier si les en-têtes sont introuvables.
  */
 function analyserFeuilleBudget_(valeurs, nomFeuille) {
@@ -256,15 +258,17 @@ function analyserFeuilleBudget_(valeurs, nomFeuille) {
   const lignesIgnorees = [];
   const vues = new Set();
   for (let position = positionEnTete + 1; position < valeurs.length; position++) {
-    const categorie = texte_(valeurs[position][index.CATEGORIE]);
+    const cellule = texte_(valeurs[position][index.CATEGORIE]);
     const montant = valeurs[position][index.MONTANT];
-    if (categorie === '' && texte_(montant) === '') break;
-    if (categorie === '' || vues.has(categorie) || typeof montant !== 'number' || !(montant > 0)) {
+    if (cellule === '' && texte_(montant) === '') break;
+    const categories = [...new Set(cellule.split(',').map(texte_).filter((categorie) => categorie !== ''))];
+    if (categories.length === 0 || categories.some((categorie) => vues.has(categorie))
+      || typeof montant !== 'number' || !(montant > 0)) {
       lignesIgnorees.push(position + 1);
       continue;
     }
-    vues.add(categorie);
-    enveloppes.push({ categorie, montant });
+    categories.forEach((categorie) => vues.add(categorie));
+    enveloppes.push({ categories, montant });
   }
   return { enveloppes, lignesIgnorees };
 }

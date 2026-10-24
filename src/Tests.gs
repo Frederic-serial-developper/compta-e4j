@@ -188,14 +188,17 @@ function testerFeuilleBudget_() {
     ['', '', 30],
     ['', 'Assurance', 100],
     ['', 'Fournitures', 0],
-    ['', 'Achat Jeux', 1000],
+    ['', 'Achat Jeux, Location jeux ,Achat Jeux', 1000],
+    ['', 'Location jeux, Animations', 80],
+    ['', ' , ', 40],
     ['', '', ''],
     ['', 'Total', 1200]
   ];
   verifierEgal_(analyserFeuilleBudget_(valeurs, 'Budget'), {
-    enveloppes: [{ categorie: 'Assurance', montant: 200 }, { categorie: 'Achat Jeux', montant: 1000 }],
-    lignesIgnorees: [5, 6, 7, 8]
-  }, 'Enveloppes lues, lignes invalides signalées, arrêt à la ligne vide');
+    enveloppes: [{ categories: ['Assurance'], montant: 200 },
+      { categories: ['Achat Jeux', 'Location jeux'], montant: 1000 }],
+    lignesIgnorees: [5, 6, 7, 8, 10, 11]
+  }, 'Enveloppes multi-catégories lues, lignes invalides signalées, arrêt à la ligne vide');
   verifierErreur_(() => analyserFeuilleBudget_([['Catégorie', 'Montant']], 'Budget'), 'Montant Prévu',
     'En-tête manquant signalé');
 }
@@ -283,32 +286,37 @@ function testerSuiviBudgets_() {
     operationTest_({ ligne: 7, centimes: 500, categorie: 'Achats jeux' }),
     operationTest_({ ligne: 8, centimes: -9900, categorie: 'Achats jeux', exercice: '2025' })
   ]);
-  const suivi = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
+  const suivi = calculerSuiviBudgets_(operations, [{ categories: ['Achats jeux'], montant: 300 }],
     ['2025', '2026'], ['Cotisations', 'Achats jeux'], { exercice: '', seuilAlerte: 80 });
   verifierEgal_(suivi.exercice, '2026', 'Exercice par défaut = dernier de la liste');
   const { ventilation, ...ligne } = suivi.lignes[0];
-  verifierEgal_(ligne, { categorie: 'Achats jeux', budget: 300, consomme: 40.49, reste: 259.51,
+  verifierEgal_(ligne, { categories: ['Achats jeux'], budget: 300, consomme: 40.49, reste: 259.51,
     pourcentage: 13.5, nbOperations: 3, statut: 'OK' }, 'Consommé = dépenses − remboursements de l\'exercice');
   verifierEgal_([ventilation.recu, ventilation.cede, ventilation.consomme], [0, 0, 40.49], 'Aucun dépassement à ventiler');
   verifierEgal_(suivi.categoriesHorsListe, [], 'Catégorie connue');
-  const autre = calculerSuiviBudgets_(operations, [{ categorie: 'Achats jeux', montant: 300 }],
+  const autre = calculerSuiviBudgets_(operations, [{ categories: ['Achats jeux'], montant: 300 }],
     ['2025', '2026'], ['Achats jeux'], { exercice: '2025', seuilAlerte: 80 });
   verifierEgal_(autre.lignes[0].consomme, 99, 'Exercice imposé par la configuration');
-  const inconnue = calculerSuiviBudgets_(operations, [{ categorie: 'Achat Jeux', montant: 50 }],
+  const inconnue = calculerSuiviBudgets_(operations, [{ categories: ['Achat Jeux'], montant: 50 }],
     ['2025', '2026'], ['Achats jeux'], { exercice: '', seuilAlerte: 80 });
   verifierEgal_([inconnue.lignes[0].consomme, inconnue.lignes[0].nbOperations, inconnue.categoriesHorsListe],
     [0, 0, ['Achat Jeux']], 'Catégorie absente de la liste signalée');
+  const groupee = calculerSuiviBudgets_(operations.concat([operationTest_({ ligne: 9, centimes: -1000, categorie: 'Animations' })]),
+    [{ categories: ['Achats jeux', 'Animations', 'Inconnue'], montant: 300 }],
+    ['2025', '2026'], ['Achats jeux', 'Animations'], { exercice: '', seuilAlerte: 80 });
+  verifierEgal_([groupee.lignes[0].consomme, groupee.lignes[0].nbOperations, groupee.categoriesHorsListe],
+    [50.49, 4, ['Inconnue']], 'Enveloppe à plusieurs catégories : consommés cumulés');
 }
 
 function testerStatutsBudget_() {
   const suivre = (montants) => calculerSuiviBudgets_(jeuOperations_(),
-    montants.map((montant, i) => ({ categorie: i === 0 ? 'Achats jeux' : 'Animations', montant })),
+    montants.map((montant, i) => ({ categories: [i === 0 ? 'Achats jeux' : 'Animations'], montant })),
     ['2025', '2026'], ['Cotisations', 'Achats jeux', 'Animations'], { exercice: '', seuilAlerte: 80 });
   verifierEgal_(suivre([100]).lignes[0].statut, 'OK', 'Sous le seuil');
   verifierEgal_(suivre([50]).lignes[0].statut, 'ALERTE', 'Seuil d\'alerte atteint (91 %)');
   const depasse = suivre([40]).lignes[0];
   verifierEgal_([depasse.statut, depasse.reste], ['DEPASSE', -5.49], 'Budget dépassé, reste négatif');
-  verifierEgal_(suivre([100, 50]).totaux, { categorie: '', budget: 150, consomme: 45.49, reste: 104.51,
+  verifierEgal_(suivre([100, 50]).totaux, { categories: [], budget: 150, consomme: 45.49, reste: 104.51,
     pourcentage: 30.3, nbOperations: 2, statut: 'OK' }, 'Totaux de toutes les enveloppes');
 }
 
@@ -319,7 +327,7 @@ function testerVentilationBudgets_() {
     operationTest_({ ligne: 8, centimes: -1000, categorie: 'Divers' })
   ]);
   const suivre = (montants) => calculerSuiviBudgets_(operations,
-    ['Achats jeux', 'Animations', 'Divers'].map((categorie, i) => ({ categorie, montant: montants[i] })),
+    ['Achats jeux', 'Animations', 'Divers'].map((categorie, i) => ({ categories: [categorie], montant: montants[i] })),
     ['2025', '2026'], ['Achats jeux', 'Animations', 'Divers'], { exercice: '', seuilAlerte: 80 });
   const extraire = (suivi) => suivi.lignes.map(({ ventilation }) =>
     [ventilation.recu, ventilation.cede, ventilation.consomme, ventilation.statut]);

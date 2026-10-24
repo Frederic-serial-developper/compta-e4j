@@ -367,10 +367,11 @@ Tableau croisé : catégories en lignes, exercices en colonnes, soldes dans les 
 ### 6.5 Suivi du budget prévisionnel
 
 - Onglet **« Budgets »** (tous rôles) : des enveloppes de dépenses sont définies pour certaines catégories dans la feuille `CONFIG.FICHIER.FEUILLE_BUDGET` (« Budget »), tableau aux en-têtes `CONFIG.COLONNES_BUDGET` (« Catégorie », « Montant Prévu » en euros), pour l'exercice `CONFIG.BUDGET.EXERCICE` (vide = **dernier exercice de la liste**).
-- Pour chaque enveloppe : budget, **consommé** = dépenses − recettes (remboursements) de la catégorie sur l'exercice, **reste** (négatif = dépassement), part consommée (%) en jauge, nombre d'opérations.
+- La colonne « Catégorie » est une liste déroulante à **choix multiples** : une enveloppe peut regrouper **plusieurs catégories** (valeurs séparées par des virgules dans la cellule, format natif de Google Sheets). Une catégorie n'appartient qu'à une seule enveloppe. Le titre de l'enveloppe est la liste de ses catégories.
+- Pour chaque enveloppe : budget, **consommé** = dépenses − recettes (remboursements) de ses catégories sur l'exercice, **reste** (négatif = dépassement), part consommée (%) en jauge, nombre d'opérations.
 - Statut : « Dans le budget », « Bientôt atteint » (part ≥ `CONFIG.BUDGET.SEUIL_ALERTE_POURCENT`) ou « Dépassé ».
 - Tuiles de total : budget, consommé, reste.
-- Une catégorie d'enveloppe absente de la liste de choix est signalée par un avertissement, de même que les lignes ignorées de la feuille Budget (catégorie vide ou en double, montant non numérique ou ≤ 0).
+- Une catégorie d'enveloppe absente de la liste de choix est signalée par un avertissement, de même que les lignes ignorées de la feuille Budget (aucune catégorie, catégorie déjà présente dans une autre enveloppe, montant non numérique ou ≤ 0).
 - Interrupteur **« Reporter les dépassements sur les autres enveloppes »** (désactivé par défaut) : le dépassement des enveloppes dépassées est réparti sur les enveloppes non dépassées **au prorata de leur budget**. Une enveloppe n'absorbe jamais plus que son reste ; l'excédent est réparti à nouveau sur celles qui ont encore de la marge. La part reçue apparaît **hachurée** dans la jauge ; une enveloppe dont le dépassement est entièrement reporté affiche « Dépassement reporté ». Si les marges ne suffisent pas, un bandeau indique le montant non couvert, qui reste sur les enveloppes dépassées. Les tuiles de total ne changent pas.
 
 ---

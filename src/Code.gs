@@ -59,9 +59,9 @@ const CONFIG = deepFreeze_({
 
   /* --- 5. Budget prévisionnel ------------------------------------------- */
   //  Enveloppes de dépenses suivies dans l'onglet « Budgets », lues dans la
-  //  feuille FICHIER.FEUILLE_BUDGET : une ligne par enveloppe, catégorie
-  //  (valeur exacte de la liste « Catégorie Bilan Financier ») et montant en euros (> 0).
-  //  Consommé d'une enveloppe = dépenses − recettes (remboursements) de la catégorie sur l'exercice.
+  //  feuille FICHIER.FEUILLE_BUDGET : une ligne par enveloppe, une ou plusieurs catégories
+  //  (liste déroulante à choix multiples sur la liste « Catégorie Bilan Financier ») et montant en euros (> 0).
+  //  Consommé d'une enveloppe = dépenses − recettes (remboursements) de ses catégories sur l'exercice.
   BUDGET: {
     EXERCICE: '',                          // Exercice suivi ; vide = dernier exercice de la liste de choix
     SEUIL_ALERTE_POURCENT: 80              // Part consommée (%) à partir de laquelle l'enveloppe est signalée
@@ -135,7 +135,7 @@ const CONFIG = deepFreeze_({
     PARAMETRE_INVALIDE: 'Paramètre de configuration invalide : {parametre}.',
     LISTE_NON_PARAMETREE: 'La colonne {colonne} n\'a pas de liste de choix paramétrée.',
     LIGNES_IGNOREES: '{nombre} ligne(s) ignorée(s) : montant invalide, lignes {lignes}.',
-    BUDGET_LIGNES_IGNOREES: 'Feuille {feuille} : {nombre} ligne(s) ignorée(s) (catégorie vide ou en double, montant non numérique ou ≤ 0), lignes {lignes}.',
+    BUDGET_LIGNES_IGNOREES: 'Feuille {feuille} : {nombre} ligne(s) ignorée(s) (sans catégorie, catégorie déjà dans une autre enveloppe, montant non numérique ou ≤ 0), lignes {lignes}.',
     BUDGET_CATEGORIE_INCONNUE: 'Catégorie(s) du budget absente(s) de la liste de choix : {categories}.',
     ERREUR_INATTENDUE: 'Une erreur est survenue. Réessayez ou contactez le trésorier.'
   }
@@ -301,7 +301,7 @@ function apiGetSuiviBudgets(parametres) {
   return executerApi_(null, () => {
     const forcer = Boolean(parametres && parametres.forcer);
     // CONFIG.BUDGET fait partie de la clé : un paramètre modifié et redéployé est pris en compte aussitôt.
-    return lireAvecCache_(`budgets-ventiles|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
+    return lireAvecCache_(`budgets-multicategories|${JSON.stringify(CONFIG.BUDGET)}`, forcer, () => {
       const { operations, lignesIgnorees, listes } = lireDonnees_(forcer);
       const budget = lireEnveloppesBudget_();
       const suivi = calculerSuiviBudgets_(operations, budget.enveloppes, listes.EXERCICE.valeurs,

@@ -140,11 +140,11 @@ const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DE
 
 /**
  * Consommation des enveloppes budgétaires sur un exercice. Le consommé d'une
- * enveloppe est le montant net dépensé dans sa catégorie (dépenses − recettes).
+ * enveloppe est le montant net dépensé dans ses catégories (dépenses − recettes).
  * Chaque ligne porte aussi sa version « ventilée » (voir ventilerDepassements_),
  * que le navigateur affiche à la demande.
  * @param {Operation[]} operations Opérations lues.
- * @param {{categorie: string, montant: number}[]} enveloppes Budgets en euros (feuille Budget).
+ * @param {{categories: string[], montant: number}[]} enveloppes Budgets en euros (feuille Budget).
  * @param {string[]} exercices Exercices de la liste de choix, dans l'ordre.
  * @param {string[]} categories Catégories de la liste de choix.
  * @param {{exercice: string, seuilAlerte: number}} options exercice vide = dernier
@@ -154,18 +154,18 @@ const STATUTS_BUDGET_ = Object.freeze({ OK: 'OK', ALERTE: 'ALERTE', DEPASSE: 'DE
 function calculerSuiviBudgets_(operations, enveloppes, exercices, categories, options) {
   const exercice = options.exercice || exercices[exercices.length - 1] || '';
   const cumuls = cumulerParCategorie_(filtrerParPeriode_(operations, REGROUPEMENTS_.EXERCICE, exercice), categories);
-  const postes = enveloppes.map(({ categorie, montant }) => ({
-    categorie,
+  const postes = enveloppes.map(({ categories: categoriesEnveloppe, montant }) => ({
+    categories: categoriesEnveloppe,
     budget: versCentimes_(montant),
-    consomme: -soldeDe_(cumuls.get(categorie)),
-    nb: cumuls.has(categorie) ? cumuls.get(categorie).nb : 0
+    consomme: -categoriesEnveloppe.reduce((total, categorie) => total + soldeDe_(cumuls.get(categorie)), 0),
+    nb: categoriesEnveloppe.reduce((total, categorie) => total + (cumuls.has(categorie) ? cumuls.get(categorie).nb : 0), 0)
   }));
   const ventilation = ventilerDepassements_(postes);
   const lignes = postes.map((poste, i) => {
     const { recu, cede } = ventilation.parPoste[i];
-    const ventilee = construireLigneBudget_(poste.categorie, poste.budget, poste.consomme + recu - cede, poste.nb,
+    const ventilee = construireLigneBudget_(poste.categories, poste.budget, poste.consomme + recu - cede, poste.nb,
       options.seuilAlerte);
-    return Object.assign(construireLigneBudget_(poste.categorie, poste.budget, poste.consomme, poste.nb,
+    return Object.assign(construireLigneBudget_(poste.categories, poste.budget, poste.consomme, poste.nb,
       options.seuilAlerte), {
       ventilation: {
         recu: versEuros_(recu),
@@ -181,9 +181,9 @@ function calculerSuiviBudgets_(operations, enveloppes, exercices, categories, op
   return {
     exercice,
     lignes,
-    totaux: construireLigneBudget_('', somme('budget'), somme('consomme'), somme('nb'), options.seuilAlerte),
+    totaux: construireLigneBudget_([], somme('budget'), somme('consomme'), somme('nb'), options.seuilAlerte),
     depassementNonCouvert: versEuros_(ventilation.nonCouvert),
-    categoriesHorsListe: enveloppes.map((enveloppe) => enveloppe.categorie)
+    categoriesHorsListe: enveloppes.flatMap((enveloppe) => enveloppe.categories)
       .filter((categorie) => !categories.includes(categorie))
   };
 }
@@ -244,20 +244,20 @@ function repartirAuProrata_(montant, poids) {
 }
 
 /**
- * @param {string} categorie Catégorie de l'enveloppe ('' pour le total).
+ * @param {string[]} categories Catégories de l'enveloppe (vide pour le total).
  * @param {number} budget Budget en centimes.
  * @param {number} consomme Montant net dépensé en centimes.
- * @param {number} nbOperations Nombre d'opérations de la catégorie.
+ * @param {number} nbOperations Nombre d'opérations des catégories.
  * @param {number} seuilAlerte Seuil d'alerte en %.
  * @return {LigneBudget} Ligne en euros.
  */
-function construireLigneBudget_(categorie, budget, consomme, nbOperations, seuilAlerte) {
+function construireLigneBudget_(categories, budget, consomme, nbOperations, seuilAlerte) {
   const pourcentage = budget === 0 ? 0 : Math.round((consomme / budget) * 1000) / 10;
   let statut = STATUTS_BUDGET_.OK;
   if (consomme > budget) statut = STATUTS_BUDGET_.DEPASSE;
   else if (pourcentage >= seuilAlerte) statut = STATUTS_BUDGET_.ALERTE;
   return {
-    categorie,
+    categories,
     budget: versEuros_(budget),
     consomme: versEuros_(consomme),
     reste: versEuros_(budget - consomme),
