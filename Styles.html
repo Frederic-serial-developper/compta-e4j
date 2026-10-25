@@ -443,28 +443,35 @@
     appearance: none;
     flex-shrink: 0;
     position: relative;
-    width: 40px;
-    height: 22px;
+    width: 48px;
+    height: 28px;
     margin: 0;
+    border: 2px solid var(--text-muted);
     border-radius: var(--radius-pilule);
-    background: var(--surface-2);
+    background: var(--bg);
     cursor: pointer;
-    transition: background var(--transition);
+    transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
   }
   .interrupteur input::before {
     content: '';
     position: absolute;
     top: 3px;
     left: 3px;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     background: var(--text-muted);
     transition: transform var(--transition), background var(--transition);
   }
-  .interrupteur input:checked { background: var(--primary); }
-  .interrupteur input:checked::before { transform: translateX(18px); background: var(--text); }
+  .interrupteur input:hover { border-color: var(--text); }
+  .interrupteur input:checked { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 12px var(--primary-glow); }
+  .interrupteur input:checked::before { transform: translateX(20px); background: #fff; }
   .interrupteur input:focus-visible { outline: 2px solid var(--primary-texte); outline-offset: 2px; }
+  .interrupteur span { color: var(--text-muted); transition: color var(--transition); }
+  .interrupteur:has(input:checked) span { color: var(--text); }
+  /* Carte contenant l'interrupteur : bordure d'accent quand l'option est active */
+  .carte:has(> .interrupteur) { border: 1px solid var(--separateur); transition: border-color var(--transition); }
+  .carte:has(> .interrupteur input:checked) { border-color: var(--primary); }
 
   /* === Pointage ========================================================== */
   .ligne-pointage {

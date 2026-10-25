@@ -112,6 +112,7 @@ Sur iOS/Android cela résout vers San Francisco ou Roboto : zéro requête rése
 - **Bouton icône circulaire** — 42×42px, fond `surface-2`, s'assombrit/rétrécit au clic ; supporte une animation de rotation (`spin`) pendant un chargement.
 - **Ligne de liste** — carte avec **bordure gauche de 4px** colorée selon le statut, nom en gras, badge pilule aligné à droite, méta-données en dessous séparées par des puces `•`.
 - **Badge de statut** — pilule, texte capitales, couleur pleine sur fond `-bg` à 15% d'opacité, une variante par statut (Trouvé / Manquant / Non répertorié).
+- **Interrupteur** (case à cocher `role="switch"`) — rail pilule 48×28px avec bouton rond de 18px. Désactivé : fond `--bg` (plus sombre que la carte), bordure 2px `--text-muted` qui s'éclaircit en `--text` au survol, bouton `--text-muted`, libellé atténué. Activé : rail `--primary` avec halo `0 0 12px var(--primary-glow)`, bouton blanc, libellé en `--text`, et la carte qui le contient passe d'une bordure `--separateur` à une bordure `--primary` (via `:has()`, effet décoratif seulement).
 - **Toast** — pilule flottante centrée en bas d'écran, fond `surface-2`, apparaît en glissant (`translateY(20px→0)`), disparaît après 2,2s.
 - **État de statut plein cadre** — bloc centré sur fond `success-bg` ou `danger-bg` pour confirmer/infirmer une action (ex. résultat de scan).
 
